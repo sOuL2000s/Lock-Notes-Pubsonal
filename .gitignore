@@ -139,3 +139,4 @@ dist
 combined_project_files.txt
 # But allow client .env (it's safe)
 !client/.env
+.vercel
