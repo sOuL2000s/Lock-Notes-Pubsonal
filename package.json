@@ -1,0 +1,11 @@
+{
+  "name": "lock-notes-pubsonal",
+  "version": "1.0.0",
+  "scripts": {
+    "build": "cd client && npm install && npm run build",
+    "dev": "vercel dev"
+  },
+  "devDependencies": {
+    "vercel": "^32.0.0"
+  }
+}
