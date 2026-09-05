@@ -2,7 +2,7 @@
   "name": "lock-notes-pubsonal",
   "version": "1.0.0",
   "scripts": {
-    "build": "cd client && npm install && npm run build",
+    "build": "cd client && npm install --omit=dev && npm run build",
     "dev": "vercel dev"
   },
   "devDependencies": {
