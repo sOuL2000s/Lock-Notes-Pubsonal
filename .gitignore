@@ -137,3 +137,5 @@ dist
 # SvelteKit build / generate output
 .svelte-kit
 combined_project_files.txt
+# But allow client .env (it's safe)
+!client/.env
