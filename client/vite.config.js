@@ -12,7 +12,7 @@ export default defineConfig({
     }
   },
   build: {
-    outDir: '../dist',  // Output to root dist
+    outDir: 'dist',  // Output to client/dist
     sourcemap: false,
     rollupOptions: {
       output: {
