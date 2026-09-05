@@ -1,0 +1,11 @@
+{
+  "name": "note-app-api",
+  "version": "1.0.0",
+  "description": "Serverless API for note app",
+  "main": "index.js",
+  "dependencies": {
+    "mongodb": "^5.0.0",
+    "bcryptjs": "^2.4.3",
+    "cors": "^2.8.5"
+  }
+}
