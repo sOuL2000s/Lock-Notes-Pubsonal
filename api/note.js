@@ -1,3 +1,4 @@
+// api/note.js
 import { connectToDatabase } from './_lib/mongodb.js';
 import { ObjectId } from 'mongodb';
 import bcrypt from 'bcryptjs';
@@ -29,17 +30,28 @@ export default async function handler(req, res) {
     // GET single note
     if (req.method === 'GET') {
       try {
-        const note = await notesCollection.findOne(
-          { _id: new ObjectId(id) },
-          { projection: { password: 0 } }
+        const noteWithPassword = await notesCollection.findOne(
+          { _id: new ObjectId(id) }
         );
 
-        if (!note) {
+        if (!noteWithPassword) {
           res.status(404).json({ error: 'Note not found' });
           return;
         }
 
-        res.status(200).json(note);
+        // Check if note has a password (handle null, undefined, empty string)
+        const hasPassword = !!(noteWithPassword.password && 
+                              noteWithPassword.password !== null && 
+                              noteWithPassword.password !== '');
+
+        // Get note without password for response
+        const { password, ...noteWithoutPassword } = noteWithPassword;
+
+        // Return note with hasPassword flag
+        res.status(200).json({
+          ...noteWithoutPassword,
+          hasPassword: hasPassword
+        });
       } catch (error) {
         console.error('GET error:', error);
         res.status(500).json({ error: 'Failed to fetch note' });

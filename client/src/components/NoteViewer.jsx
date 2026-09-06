@@ -13,23 +13,24 @@ function NoteViewer({ note, onEdit, onDelete, onBack }) {
   const [isPasswordVerified, setIsPasswordVerified] = useState(false);
   const [viewPassword, setViewPassword] = useState('');
 
-  // Reset verification when note changes
+  // Reset verification when note changes - IMPORTANT for security
   useEffect(() => {
+    // Always reset verification when a new note is loaded
     setIsPasswordVerified(false);
     setViewPassword('');
+    setAttempts(0);
   }, [note?._id]);
+
+  // Check if note has password
+  const hasPassword = note?.password && note.password !== null && note.password !== '';
 
   const verifyPassword = async (password) => {
     try {
-      // Make a small update to verify the password
-      await api.updateNote(note._id, {
-        title: note.title,
-        content: note.content,
-        currentPassword: password
-      });
+      // Use the api's verifyPassword method
+      await api.verifyPassword(note._id, password);
       return true;
     } catch (error) {
-      if (error.response?.status === 401) {
+      if (error.message === 'INVALID_PASSWORD') {
         throw new Error('Invalid password');
       }
       throw error;
@@ -59,7 +60,7 @@ function NoteViewer({ note, onEdit, onDelete, onBack }) {
 
   const handleViewRequest = () => {
     // Always show password modal for protected notes
-    if (note.password && !isPasswordVerified) {
+    if (hasPassword && !isPasswordVerified) {
       setPasswordAction('view');
       setShowPasswordModal(true);
     }
@@ -67,10 +68,10 @@ function NoteViewer({ note, onEdit, onDelete, onBack }) {
 
   const handleEditClick = () => {
     // Always require password for protected notes
-    if (note.password && !isPasswordVerified) {
+    if (hasPassword && !isPasswordVerified) {
       setPasswordAction('edit');
       setShowPasswordModal(true);
-    } else if (note.password && isPasswordVerified) {
+    } else if (hasPassword && isPasswordVerified) {
       // Already verified, proceed with edit
       onEdit(note);
     } else {
@@ -81,10 +82,10 @@ function NoteViewer({ note, onEdit, onDelete, onBack }) {
 
   const handleDeleteClick = () => {
     // Always require password for protected notes
-    if (note.password && !isPasswordVerified) {
+    if (hasPassword && !isPasswordVerified) {
       setPasswordAction('delete');
       setShowPasswordModal(true);
-    } else if (note.password && isPasswordVerified) {
+    } else if (hasPassword && isPasswordVerified) {
       // Already verified, proceed with delete
       handleDelete(viewPassword);
     } else {
@@ -143,7 +144,7 @@ function NoteViewer({ note, onEdit, onDelete, onBack }) {
   };
 
   // Show lock screen for protected notes that haven't been verified
-  if (note.password && !isPasswordVerified) {
+  if (hasPassword && !isPasswordVerified) {
     return (
       <div style={styles.container}>
         <div style={styles.card}>
@@ -196,7 +197,7 @@ function NoteViewer({ note, onEdit, onDelete, onBack }) {
           
           <div style={styles.noteHeader}>
             <h2 style={styles.title}>{note.title}</h2>
-            {note.password && (
+            {hasPassword && (
               <span style={styles.verifiedBadge}>
                 <Unlock size={12} style={{ marginRight: '4px' }} />
                 DECRYPTED
@@ -214,7 +215,7 @@ function NoteViewer({ note, onEdit, onDelete, onBack }) {
                 UPDATED: {new Date(note.updatedAt).toLocaleDateString()}
               </span>
             )}
-            {note.password && (
+            {hasPassword && (
               <span style={styles.protected}>🔒 ENCRYPTED</span>
             )}
           </div>
@@ -266,6 +267,7 @@ function NoteViewer({ note, onEdit, onDelete, onBack }) {
   );
 }
 
+// Styles remain the same...
 const styles = {
   container: {
     padding: '20px 0',

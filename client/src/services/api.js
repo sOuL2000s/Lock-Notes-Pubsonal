@@ -111,9 +111,20 @@ export const api = {
   },
 
   verifyPassword: async (id, password) => {
+    if (!id) throw new Error('NOTE_ID_REQUIRED');
+    if (!password) throw new Error('PASSWORD_REQUIRED');
+    
     try {
+      // First, try to get the note to check if it has a password
       const note = await api.getNote(id);
-      await api.updateNote(id, {
+      
+      // If note doesn't have a password, return true
+      if (!note.password || note.password === null || note.password === '') {
+        return true;
+      }
+      
+      // Try to update with the password - this will fail if password is wrong
+      await apiClient.put(`/note?id=${id}`, {
         title: note.title,
         content: note.content,
         currentPassword: password

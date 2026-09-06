@@ -13,20 +13,40 @@ function NoteList({ notes, onViewNote, onEditNote, onDeleteNote }) {
     isLocked: false
   });
 
+  // Reset modal state when closed
+  const resetModal = () => {
+    setPasswordModal({
+      isOpen: false,
+      noteId: null,
+      action: 'view',
+      title: '',
+      attempts: 0,
+      isLocked: false
+    });
+  };
+
   const handleActionWithPassword = (noteId, action, title) => {
     const note = notes.find(n => n._id === noteId);
-    // Check if note has password protection
-    if (note?.password) {
+    
+    // IMPORTANT: Check if note has password property
+    const hasPassword = note?.password && note.password !== null && note.password !== '';
+    
+    console.log('Note in handleActionWithPassword:', note);
+    console.log('Has password:', hasPassword);
+    console.log('Note title:', note.title);
+
+    if (hasPassword) {
+      // Show password modal with correct title
       setPasswordModal({
         isOpen: true,
         noteId,
         action,
-        title: title || note.title,
+        title: note.title, // Make sure we're using the note's title
         attempts: 0,
         isLocked: false
       });
     } else {
-      // No password required, perform action directly
+      // No password, perform action directly
       performAction(noteId, action, '');
     }
   };
@@ -41,6 +61,8 @@ function NoteList({ notes, onViewNote, onEditNote, onDeleteNote }) {
       } else if (action === 'delete') {
         await onDeleteNote(noteId, password);
       }
+      // Close modal on success
+      resetModal();
     } catch (error) {
       // If error is 401 (Unauthorized), show password modal again
       if (error.response?.status === 401) {
@@ -49,7 +71,6 @@ function NoteList({ notes, onViewNote, onEditNote, onDeleteNote }) {
           attempts: prev.attempts + 1,
           isOpen: true // Reopen the modal
         }));
-        throw error;
       }
       throw error;
     }
@@ -58,7 +79,6 @@ function NoteList({ notes, onViewNote, onEditNote, onDeleteNote }) {
   const handlePasswordVerify = async (password) => {
     const { noteId, action } = passwordModal;
     await performAction(noteId, action, password);
-    setPasswordModal(prev => ({ ...prev, isOpen: false }));
   };
 
   const handleLocked = () => {
@@ -79,69 +99,74 @@ function NoteList({ notes, onViewNote, onEditNote, onDeleteNote }) {
           </div>
         ) : (
           <div style={styles.grid}>
-            {notes.map((note) => (
-              <div key={note._id} style={styles.card}>
-                <div style={styles.cardHeader}>
-                  <h3 style={styles.cardTitle}>{note.title}</h3>
-                  {note.password && (
-                    <Lock size={14} style={styles.lockBadge} />
-                  )}
+            {notes.map((note) => {
+              // Check if note has password
+              const hasPassword = note?.password && note.password !== null && note.password !== '';
+              
+              return (
+                <div key={note._id} style={styles.card}>
+                  <div style={styles.cardHeader}>
+                    <h3 style={styles.cardTitle}>{note.title}</h3>
+                    {hasPassword && (
+                      <Lock size={14} style={styles.lockBadge} />
+                    )}
+                  </div>
+                  
+                  <p style={styles.cardContent}>
+                    {note.content.length > 120 
+                      ? note.content.substring(0, 120) + '...' 
+                      : note.content}
+                  </p>
+                  
+                  <div style={styles.cardFooter}>
+                    <span style={styles.cardDate}>
+                      <Calendar size={12} style={{ marginRight: '4px' }} />
+                      {new Date(note.createdAt).toLocaleDateString('en-US', {
+                        month: 'short',
+                        day: 'numeric',
+                        year: 'numeric'
+                      })}
+                    </span>
+                    {hasPassword && (
+                      <span style={styles.protectedBadge}>🔒 ENCRYPTED</span>
+                    )}
+                  </div>
+                  
+                  <div style={styles.cardActions}>
+                    <button 
+                      onClick={() => handleActionWithPassword(note._id, 'view', note.title)}
+                      style={styles.viewButton}
+                    >
+                      <Eye size={14} style={{ marginRight: '4px' }} />
+                      VIEW
+                    </button>
+                    <button 
+                      onClick={() => handleActionWithPassword(note._id, 'edit', note.title)}
+                      style={styles.editButton}
+                    >
+                      <Edit size={14} style={{ marginRight: '4px' }} />
+                      EDIT
+                    </button>
+                    <button 
+                      onClick={() => handleActionWithPassword(note._id, 'delete', note.title)}
+                      style={styles.deleteButton}
+                    >
+                      <Trash2 size={14} style={{ marginRight: '4px' }} />
+                      DELETE
+                    </button>
+                  </div>
                 </div>
-                
-                <p style={styles.cardContent}>
-                  {note.content.length > 120 
-                    ? note.content.substring(0, 120) + '...' 
-                    : note.content}
-                </p>
-                
-                <div style={styles.cardFooter}>
-                  <span style={styles.cardDate}>
-                    <Calendar size={12} style={{ marginRight: '4px' }} />
-                    {new Date(note.createdAt).toLocaleDateString('en-US', {
-                      month: 'short',
-                      day: 'numeric',
-                      year: 'numeric'
-                    })}
-                  </span>
-                  {note.password && (
-                    <span style={styles.protectedBadge}>🔒 ENCRYPTED</span>
-                  )}
-                </div>
-                
-                <div style={styles.cardActions}>
-                  <button 
-                    onClick={() => handleActionWithPassword(note._id, 'view', note.title)}
-                    style={styles.viewButton}
-                  >
-                    <Eye size={14} style={{ marginRight: '4px' }} />
-                    VIEW
-                  </button>
-                  <button 
-                    onClick={() => handleActionWithPassword(note._id, 'edit', note.title)}
-                    style={styles.editButton}
-                  >
-                    <Edit size={14} style={{ marginRight: '4px' }} />
-                    EDIT
-                  </button>
-                  <button 
-                    onClick={() => handleActionWithPassword(note._id, 'delete', note.title)}
-                    style={styles.deleteButton}
-                  >
-                    <Trash2 size={14} style={{ marginRight: '4px' }} />
-                    DELETE
-                  </button>
-                </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         )}
       </div>
 
       <PasswordModal
         isOpen={passwordModal.isOpen}
-        onClose={() => setPasswordModal(prev => ({ ...prev, isOpen: false }))}
+        onClose={resetModal}
         onVerify={handlePasswordVerify}
-        noteTitle={passwordModal.title}
+        noteTitle={passwordModal.title || 'UNTITLED_NOTE'}
         action={passwordModal.action}
         attempts={passwordModal.attempts}
         maxAttempts={5}
@@ -151,6 +176,7 @@ function NoteList({ notes, onViewNote, onEditNote, onDeleteNote }) {
   );
 }
 
+// Styles remain the same...
 const styles = {
   container: {
     padding: '20px 0',

@@ -41,18 +41,22 @@ function PasswordModal({
       await onVerify(password);
       setPassword('');
       setLoading(false);
+      // Modal will be closed by parent component on success
     } catch (err) {
       const newAttempts = attempts + 1;
       setRemainingAttempts(maxAttempts - newAttempts);
       
       if (newAttempts >= maxAttempts) {
         setError('⚠️ SYSTEM LOCKED: Maximum attempts exceeded. Cooldown: 30s');
-        onLocked();
+        if (onLocked) {
+          onLocked();
+        }
         setTimeout(() => {
           setRemainingAttempts(maxAttempts);
         }, 30000);
       } else {
-        setError(`❌ INVALID CREDENTIALS: ${maxAttempts - newAttempts} attempts remaining`);
+        const errorMessage = err.response?.data?.error || 'INVALID CREDENTIALS';
+        setError(`❌ ${errorMessage.toUpperCase()}: ${maxAttempts - newAttempts} attempts remaining`);
       }
       setPassword('');
       setLoading(false);
