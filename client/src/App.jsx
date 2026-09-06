@@ -12,6 +12,8 @@ function App() {
   const [viewMode, setViewMode] = useState('list');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+  // Add state for pre-verified password
+  const [preVerifiedPassword, setPreVerifiedPassword] = useState('');
 
   useEffect(() => {
     loadNotes();
@@ -37,6 +39,7 @@ function App() {
       setNotes([newNote, ...notes]);
       setViewMode('list');
       setCurrentNote(null);
+      setPreVerifiedPassword('');
     } catch (err) {
       setError(err.response?.data?.error || 'CREATE_FAILED');
       throw err;
@@ -49,6 +52,7 @@ function App() {
       setNotes(notes.map(n => n._id === id ? updatedNote : n));
       setViewMode('list');
       setCurrentNote(null);
+      setPreVerifiedPassword('');
     } catch (err) {
       setError(err.response?.data?.error || 'UPDATE_FAILED');
       throw err;
@@ -62,6 +66,7 @@ function App() {
       if (currentNote?._id === id) {
         setCurrentNote(null);
         setViewMode('list');
+        setPreVerifiedPassword('');
       }
     } catch (err) {
       setError(err.response?.data?.error || 'DELETE_FAILED');
@@ -69,10 +74,11 @@ function App() {
     }
   };
 
-  const handleViewNote = async (id) => {
+  const handleViewNote = async (id, preVerifiedPassword = '') => {
     try {
       const note = await api.getNote(id);
       setCurrentNote(note);
+      setPreVerifiedPassword(preVerifiedPassword); // Store the password for viewer
       setViewMode('view');
     } catch (err) {
       setError('LOAD_NOTE_FAILED');
@@ -89,6 +95,7 @@ function App() {
     setViewMode('list');
     setCurrentNote(null);
     setError(null);
+    setPreVerifiedPassword('');
   };
 
   if (loading) {
@@ -126,6 +133,7 @@ function App() {
             onClick={() => {
               setCurrentNote(null);
               setViewMode('create');
+              setPreVerifiedPassword('');
             }}
             style={styles.createButton}
           >
@@ -152,6 +160,7 @@ function App() {
       {viewMode === 'view' && currentNote && (
         <NoteViewer
           note={currentNote}
+          preVerifiedPassword={preVerifiedPassword}
           onEdit={() => handleEditNote(currentNote)}
           onDelete={handleDeleteNote}
           onBack={handleBackToList}
@@ -161,6 +170,7 @@ function App() {
   );
 }
 
+// Styles remain the same...
 const styles = {
   container: {
     maxWidth: '1280px',

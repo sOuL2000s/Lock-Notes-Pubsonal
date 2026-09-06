@@ -7,7 +7,7 @@ function NoteEditor({ note, onSave, onCancel }) {
   const [content, setContent] = useState('');
   const [password, setPassword] = useState('');
   const [currentPassword, setCurrentPassword] = useState('');
-  const [isPasswordProtected, setIsPasswordProtected] = useState(false);
+  // Remove isPasswordProtected state - always protected
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [showPassword, setShowPassword] = useState(false);
@@ -21,49 +21,49 @@ function NoteEditor({ note, onSave, onCancel }) {
     if (note) {
       setTitle(note.title || '');
       setContent(note.content || '');
-      setIsPasswordProtected(!!note.password);
+      // Password is always required, so we don't need isPasswordProtected
     } else {
       setTitle('');
       setContent('');
       setPassword('');
       setCurrentPassword('');
-      setIsPasswordProtected(false);
       setPasswordValidation({ isValid: false, message: '' });
     }
   }, [note]);
 
   const validatePassword = (pwd) => {
-    if (!pwd) {
-      setPasswordValidation({ isValid: false, message: 'PASSWORD_REQUIRED' });
-      return false;
-    }
-    
-    const hasMinLength = pwd.length >= 8;
-    const hasLowercase = /[a-z]/.test(pwd);
-    const hasUppercase = /[A-Z]/.test(pwd);
-    const hasNumber = /[0-9]/.test(pwd);
-    const hasSpecial = /[^a-zA-Z0-9]/.test(pwd);
-    
-    const score = [hasMinLength, hasLowercase, hasUppercase, hasNumber, hasSpecial].filter(Boolean).length;
-    
-    if (score < 3) {
+    if (!pwd || pwd.length < 6) {
       setPasswordValidation({ 
         isValid: false, 
-        message: 'WEAK_ENCRYPTION: Minimum 8 chars, include uppercase, lowercase, number/special' 
+        message: 'Password must be at least 6 characters long' 
       });
       return false;
     }
     
-    setPasswordValidation({ isValid: true, message: 'STRONG_ENCRYPTION ✓' });
+    // Optional: Add more strength requirements
+    const hasMinLength = pwd.length >= 6;
+    const hasLowercase = /[a-z]/.test(pwd);
+    const hasUppercase = /[A-Z]/.test(pwd);
+    const hasNumber = /[0-9]/.test(pwd);
+    
+    const score = [hasMinLength, hasLowercase, hasUppercase, hasNumber].filter(Boolean).length;
+    
+    if (score < 3) {
+      setPasswordValidation({ 
+        isValid: false, 
+        message: 'Password should include uppercase, lowercase, and number (min 6 chars)' 
+      });
+      return false;
+    }
+    
+    setPasswordValidation({ isValid: true, message: '✓ Password meets requirements' });
     return true;
   };
 
   const handlePasswordChange = (e) => {
     const newPassword = e.target.value;
     setPassword(newPassword);
-    if (isPasswordProtected) {
-      validatePassword(newPassword);
-    }
+    validatePassword(newPassword);
   };
 
   const handleInsertImage = () => {
@@ -132,8 +132,8 @@ function NoteEditor({ note, onSave, onCancel }) {
       const noteData = {
         title: title.trim(),
         content: content.trim(),
-        password: isPasswordProtected ? password : undefined,
-        currentPassword: note?.password ? currentPassword : undefined
+        password: password, // Always send password
+        currentPassword: note ? currentPassword : undefined
       };
 
       if (!noteData.title) {
@@ -148,9 +148,10 @@ function NoteEditor({ note, onSave, onCancel }) {
         return;
       }
 
-      if (isPasswordProtected) {
+      // --- PASSWORD IS ALWAYS REQUIRED FOR NEW NOTES ---
+      if (!note) {
         if (!password) {
-          setError('PASSWORD_REQUIRED');
+          setError('PASSWORD_REQUIRED: Encryption key required');
           setLoading(false);
           return;
         }
@@ -161,10 +162,19 @@ function NoteEditor({ note, onSave, onCancel }) {
         }
       }
 
-      if (note?.password && !currentPassword) {
-        setError('CURRENT_PASSWORD_REQUIRED');
-        setLoading(false);
-        return;
+      // For editing existing notes, current password is required
+      if (note) {
+        if (!currentPassword) {
+          setError('CURRENT_PASSWORD_REQUIRED: Enter current password to make changes');
+          setLoading(false);
+          return;
+        }
+        // If new password provided, validate it
+        if (password && !validatePassword(password)) {
+          setError(passwordValidation.message);
+          setLoading(false);
+          return;
+        }
       }
 
       if (note) {
@@ -233,15 +243,49 @@ function NoteEditor({ note, onSave, onCancel }) {
             />
           </div>
 
-          {note?.password && (
+          {/* Always show password field for new notes */}
+          {!note && (
             <div style={styles.formGroup}>
-              <label style={styles.label}>CURRENT_PASSWORD</label>
+              <label style={styles.label}>ENCRYPTION_KEY <span style={{ color: '#ff0044' }}>*</span></label>
+              <div style={styles.passwordInputWrapper}>
+                <input
+                  type={showPassword ? 'text' : 'password'}
+                  value={password}
+                  onChange={handlePasswordChange}
+                  placeholder="Enter encryption key (min 6 characters)"
+                  style={styles.passwordInput}
+                  disabled={loading}
+                  required
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowPassword(!showPassword)}
+                  style={styles.eyeButton}
+                >
+                  {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
+                </button>
+              </div>
+              {passwordValidation.message && (
+                <div style={{
+                  ...styles.validationMessage,
+                  color: passwordValidation.isValid ? '#00ff41' : '#ffa500'
+                }}>
+                  {passwordValidation.message}
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* For editing: current password is always required */}
+          {note && (
+            <div style={styles.formGroup}>
+              <label style={styles.label}>CURRENT_PASSWORD <span style={{ color: '#ff0044' }}>*</span></label>
               <div style={styles.passwordInputWrapper}>
                 <input
                   type={showCurrentPassword ? 'text' : 'password'}
                   value={currentPassword}
                   onChange={(e) => setCurrentPassword(e.target.value)}
-                  placeholder="Enter current password to update"
+                  placeholder="Enter current password to make changes"
                   style={styles.passwordInput}
                   disabled={loading}
                   required
@@ -254,57 +298,43 @@ function NoteEditor({ note, onSave, onCancel }) {
                   {showCurrentPassword ? <EyeOff size={18} /> : <Eye size={18} />}
                 </button>
               </div>
+              <div style={{ fontSize: '0.7rem', color: '#00ff41', opacity: 0.4, marginTop: '4px' }}>
+                [ Current password is required to update this note ]
+              </div>
             </div>
           )}
 
-          <div style={styles.formGroup}>
-            <label style={styles.checkboxLabel}>
-              <input
-                type="checkbox"
-                checked={isPasswordProtected}
-                onChange={(e) => {
-                  setIsPasswordProtected(e.target.checked);
-                  if (!e.target.checked) {
-                    setPassword('');
-                    setPasswordValidation({ isValid: false, message: '' });
-                  }
-                }}
-                style={styles.checkbox}
-                disabled={loading}
-              />
-              ENABLE_ENCRYPTION
-            </label>
-            
-            {isPasswordProtected && (
-              <>
-                <div style={styles.passwordInputWrapper}>
-                  <input
-                    type={showPassword ? 'text' : 'password'}
-                    value={password}
-                    onChange={handlePasswordChange}
-                    placeholder={note?.password ? "New password (leave blank to keep current)" : "Enter encryption key"}
-                    style={styles.passwordInput}
-                    disabled={loading}
-                  />
-                  <button
-                    type="button"
-                    onClick={() => setShowPassword(!showPassword)}
-                    style={styles.eyeButton}
-                  >
-                    {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
-                  </button>
+          {/* Optional new password field when editing */}
+          {note && (
+            <div style={styles.formGroup}>
+              <label style={styles.label}>NEW_ENCRYPTION_KEY (optional)</label>
+              <div style={styles.passwordInputWrapper}>
+                <input
+                  type={showPassword ? 'text' : 'password'}
+                  value={password}
+                  onChange={handlePasswordChange}
+                  placeholder="Set new password (optional)"
+                  style={styles.passwordInput}
+                  disabled={loading}
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowPassword(!showPassword)}
+                  style={styles.eyeButton}
+                >
+                  {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
+                </button>
+              </div>
+              {password && passwordValidation.message && (
+                <div style={{
+                  ...styles.validationMessage,
+                  color: passwordValidation.isValid ? '#00ff41' : '#ffa500'
+                }}>
+                  {passwordValidation.message}
                 </div>
-                {passwordValidation.message && (
-                  <div style={{
-                    ...styles.validationMessage,
-                    color: passwordValidation.isValid ? '#00ff41' : '#ff0044'
-                  }}>
-                    {passwordValidation.message}
-                  </div>
-                )}
-              </>
-            )}
-          </div>
+              )}
+            </div>
+          )}
 
           {error && (
             <div style={styles.error}>
@@ -359,6 +389,7 @@ function NoteEditor({ note, onSave, onCancel }) {
   );
 }
 
+// Styles remain the same...
 const styles = {
   container: {
     padding: '20px 0',
@@ -393,18 +424,6 @@ const styles = {
     marginBottom: '8px',
     fontWeight: '700',
     fontSize: 'clamp(0.7rem, 1.5vw, 0.8rem)',
-    fontFamily: 'monospace',
-    letterSpacing: '1px'
-  },
-  checkboxLabel: {
-    display: 'flex',
-    alignItems: 'center',
-    color: '#00ff41',
-    opacity: 0.6,
-    fontWeight: '700',
-    fontSize: 'clamp(0.7rem, 1.5vw, 0.8rem)',
-    cursor: 'pointer',
-    gap: '10px',
     fontFamily: 'monospace',
     letterSpacing: '1px'
   },
@@ -490,13 +509,6 @@ const styles = {
     padding: '5px',
     color: '#00ff41',
     opacity: 0.6,
-  },
-  checkbox: {
-    marginRight: '0',
-    width: '18px',
-    height: '18px',
-    cursor: 'pointer',
-    accentColor: '#00ff41'
   },
   charCount: {
     textAlign: 'right',

@@ -4,7 +4,7 @@ import PasswordModal from './PasswordModal';
 import { api } from '../services/api';
 import { Edit, Trash2, Lock, Unlock, Calendar, ArrowLeft } from 'lucide-react';
 
-function NoteViewer({ note, onEdit, onDelete, onBack }) {
+function NoteViewer({ note, preVerifiedPassword = '', onEdit, onDelete, onBack }) {
   const [loading, setLoading] = useState(false);
   const [showPasswordModal, setShowPasswordModal] = useState(false);
   const [passwordAction, setPasswordAction] = useState('view');
@@ -13,20 +13,39 @@ function NoteViewer({ note, onEdit, onDelete, onBack }) {
   const [isPasswordVerified, setIsPasswordVerified] = useState(false);
   const [viewPassword, setViewPassword] = useState('');
 
-  // Reset verification when note changes - IMPORTANT for security
+  // Check if we have a pre-verified password from the list
   useEffect(() => {
-    // Always reset verification when a new note is loaded
-    setIsPasswordVerified(false);
-    setViewPassword('');
-    setAttempts(0);
-  }, [note?._id]);
+    if (preVerifiedPassword) {
+      // Auto-verify with the password from the list
+      handleAutoVerify(preVerifiedPassword);
+    }
+  }, [preVerifiedPassword]);
 
-  // Check if note has password
-  const hasPassword = note?.password && note.password !== null && note.password !== '';
+  // Reset verification when note changes
+  useEffect(() => {
+    // Only reset if we don't have a pre-verified password
+    if (!preVerifiedPassword) {
+      setIsPasswordVerified(false);
+      setViewPassword('');
+      setAttempts(0);
+    }
+  }, [note?._id, preVerifiedPassword]);
+
+  const handleAutoVerify = async (password) => {
+    try {
+      await api.verifyPassword(note._id, password);
+      setIsPasswordVerified(true);
+      setViewPassword(password);
+      setAttempts(0);
+    } catch (error) {
+      // If auto-verify fails, show password modal
+      setIsPasswordVerified(false);
+      setShowPasswordModal(true);
+    }
+  };
 
   const verifyPassword = async (password) => {
     try {
-      // Use the api's verifyPassword method
       await api.verifyPassword(note._id, password);
       return true;
     } catch (error) {
@@ -59,38 +78,25 @@ function NoteViewer({ note, onEdit, onDelete, onBack }) {
   };
 
   const handleViewRequest = () => {
-    // Always show password modal for protected notes
-    if (hasPassword && !isPasswordVerified) {
-      setPasswordAction('view');
-      setShowPasswordModal(true);
-    }
+    setPasswordAction('view');
+    setShowPasswordModal(true);
   };
 
   const handleEditClick = () => {
-    // Always require password for protected notes
-    if (hasPassword && !isPasswordVerified) {
+    if (!isPasswordVerified) {
       setPasswordAction('edit');
       setShowPasswordModal(true);
-    } else if (hasPassword && isPasswordVerified) {
-      // Already verified, proceed with edit
-      onEdit(note);
     } else {
-      // No password, proceed with edit
       onEdit(note);
     }
   };
 
   const handleDeleteClick = () => {
-    // Always require password for protected notes
-    if (hasPassword && !isPasswordVerified) {
+    if (!isPasswordVerified) {
       setPasswordAction('delete');
       setShowPasswordModal(true);
-    } else if (hasPassword && isPasswordVerified) {
-      // Already verified, proceed with delete
-      handleDelete(viewPassword);
     } else {
-      // No password, proceed with delete
-      handleDelete('');
+      handleDelete(viewPassword);
     }
   };
 
@@ -143,8 +149,8 @@ function NoteViewer({ note, onEdit, onDelete, onBack }) {
     });
   };
 
-  // Show lock screen for protected notes that haven't been verified
-  if (hasPassword && !isPasswordVerified) {
+  // Show lock screen for all notes until password is verified
+  if (!isPasswordVerified) {
     return (
       <div style={styles.container}>
         <div style={styles.card}>
@@ -197,12 +203,10 @@ function NoteViewer({ note, onEdit, onDelete, onBack }) {
           
           <div style={styles.noteHeader}>
             <h2 style={styles.title}>{note.title}</h2>
-            {hasPassword && (
-              <span style={styles.verifiedBadge}>
-                <Unlock size={12} style={{ marginRight: '4px' }} />
-                DECRYPTED
-              </span>
-            )}
+            <span style={styles.verifiedBadge}>
+              <Unlock size={12} style={{ marginRight: '4px' }} />
+              DECRYPTED
+            </span>
           </div>
           
           <div style={styles.meta}>
@@ -215,9 +219,7 @@ function NoteViewer({ note, onEdit, onDelete, onBack }) {
                 UPDATED: {new Date(note.updatedAt).toLocaleDateString()}
               </span>
             )}
-            {hasPassword && (
-              <span style={styles.protected}>🔒 ENCRYPTED</span>
-            )}
+            <span style={styles.protected}>🔒 ENCRYPTED</span>
           </div>
 
           <div style={styles.content}>

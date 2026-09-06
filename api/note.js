@@ -39,7 +39,7 @@ export default async function handler(req, res) {
           return;
         }
 
-        // Check if note has a password (handle null, undefined, empty string)
+        // All notes now have passwords, so this is always true
         const hasPassword = !!(noteWithPassword.password && 
                               noteWithPassword.password !== null && 
                               noteWithPassword.password !== '');
@@ -76,18 +76,16 @@ export default async function handler(req, res) {
           return;
         }
 
-        // Check if note is password protected
-        if (note.password) {
-          if (!currentPassword) {
-            res.status(401).json({ error: 'Password required to update this note' });
-            return;
-          }
+        // --- PASSWORD IS ALWAYS REQUIRED FOR UPDATES ---
+        if (!currentPassword) {
+          res.status(401).json({ error: 'Password required to update this note' });
+          return;
+        }
 
-          const isValid = await bcrypt.compare(currentPassword, note.password);
-          if (!isValid) {
-            res.status(401).json({ error: 'Invalid password' });
-            return;
-          }
+        const isValid = await bcrypt.compare(currentPassword, note.password);
+        if (!isValid) {
+          res.status(401).json({ error: 'Invalid password' });
+          return;
         }
 
         // Check if new title conflicts with existing note
@@ -102,7 +100,7 @@ export default async function handler(req, res) {
           }
         }
 
-        // Update password if provided
+        // If a new password is provided, hash it
         let updateData = {
           title,
           content,
@@ -110,6 +108,11 @@ export default async function handler(req, res) {
         };
 
         if (password) {
+          // Validate new password strength
+          if (password.length < 6) {
+            res.status(400).json({ error: 'New password must be at least 6 characters long' });
+            return;
+          }
           updateData.password = await bcrypt.hash(password, 10);
         }
 
@@ -144,18 +147,16 @@ export default async function handler(req, res) {
           return;
         }
 
-        // Check if note is password protected
-        if (note.password) {
-          if (!password) {
-            res.status(401).json({ error: 'Password required to delete this note' });
-            return;
-          }
+        // --- PASSWORD IS ALWAYS REQUIRED FOR DELETES ---
+        if (!password) {
+          res.status(401).json({ error: 'Password required to delete this note' });
+          return;
+        }
 
-          const isValid = await bcrypt.compare(password, note.password);
-          if (!isValid) {
-            res.status(401).json({ error: 'Invalid password' });
-            return;
-          }
+        const isValid = await bcrypt.compare(password, note.password);
+        if (!isValid) {
+          res.status(401).json({ error: 'Invalid password' });
+          return;
         }
 
         await notesCollection.deleteOne({ _id: new ObjectId(id) });

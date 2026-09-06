@@ -26,35 +26,24 @@ function NoteList({ notes, onViewNote, onEditNote, onDeleteNote }) {
   };
 
   const handleActionWithPassword = (noteId, action, title) => {
+    // All notes now have passwords, so always show the password modal
     const note = notes.find(n => n._id === noteId);
     
-    // IMPORTANT: Check if note has password property
-    const hasPassword = note?.password && note.password !== null && note.password !== '';
-    
-    console.log('Note in handleActionWithPassword:', note);
-    console.log('Has password:', hasPassword);
-    console.log('Note title:', note.title);
-
-    if (hasPassword) {
-      // Show password modal with correct title
-      setPasswordModal({
-        isOpen: true,
-        noteId,
-        action,
-        title: note.title, // Make sure we're using the note's title
-        attempts: 0,
-        isLocked: false
-      });
-    } else {
-      // No password, perform action directly
-      performAction(noteId, action, '');
-    }
+    setPasswordModal({
+      isOpen: true,
+      noteId,
+      action,
+      title: note?.title || title || 'UNTITLED_NOTE',
+      attempts: 0,
+      isLocked: false
+    });
   };
 
   const performAction = async (noteId, action, password) => {
     try {
       if (action === 'view') {
-        await onViewNote(noteId);
+        // Pass the password to the view handler so NoteViewer can auto-verify
+        await onViewNote(noteId, password);
       } else if (action === 'edit') {
         const note = notes.find(n => n._id === noteId);
         await onEditNote(note);
@@ -100,16 +89,12 @@ function NoteList({ notes, onViewNote, onEditNote, onDeleteNote }) {
         ) : (
           <div style={styles.grid}>
             {notes.map((note) => {
-              // Check if note has password
-              const hasPassword = note?.password && note.password !== null && note.password !== '';
-              
+              // All notes now have passwords
               return (
                 <div key={note._id} style={styles.card}>
                   <div style={styles.cardHeader}>
                     <h3 style={styles.cardTitle}>{note.title}</h3>
-                    {hasPassword && (
-                      <Lock size={14} style={styles.lockBadge} />
-                    )}
+                    <Lock size={14} style={styles.lockBadge} />
                   </div>
                   
                   <p style={styles.cardContent}>
@@ -127,9 +112,7 @@ function NoteList({ notes, onViewNote, onEditNote, onDeleteNote }) {
                         year: 'numeric'
                       })}
                     </span>
-                    {hasPassword && (
-                      <span style={styles.protectedBadge}>🔒 ENCRYPTED</span>
-                    )}
+                    <span style={styles.protectedBadge}>🔒 ENCRYPTED</span>
                   </div>
                   
                   <div style={styles.cardActions}>
@@ -176,7 +159,6 @@ function NoteList({ notes, onViewNote, onEditNote, onDeleteNote }) {
   );
 }
 
-// Styles remain the same...
 const styles = {
   container: {
     padding: '20px 0',

@@ -1,3 +1,4 @@
+// api/notes.js
 import { connectToDatabase } from './_lib/mongodb.js';
 import bcrypt from 'bcryptjs';
 
@@ -45,6 +46,18 @@ export default async function handler(req, res) {
           return;
         }
 
+        // --- PASSWORD IS NOW MANDATORY ---
+        if (!password || password.trim() === '') {
+          res.status(400).json({ error: 'Password is required to create a note' });
+          return;
+        }
+
+        // Password strength validation (minimum 6 characters)
+        if (password.length < 6) {
+          res.status(400).json({ error: 'Password must be at least 6 characters long' });
+          return;
+        }
+
         // Check if note name already exists
         const existingNote = await notesCollection.findOne({ title });
         if (existingNote) {
@@ -52,11 +65,8 @@ export default async function handler(req, res) {
           return;
         }
 
-        // Hash password if provided
-        let hashedPassword = null;
-        if (password) {
-          hashedPassword = await bcrypt.hash(password, 10);
-        }
+        // Hash password
+        const hashedPassword = await bcrypt.hash(password, 10);
 
         const note = {
           title,
