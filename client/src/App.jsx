@@ -7,7 +7,7 @@ import { api } from './services/api';
 function App() {
   const [notes, setNotes] = useState([]);
   const [currentNote, setCurrentNote] = useState(null);
-  const [viewMode, setViewMode] = useState('list'); // 'list', 'create', 'edit', 'view'
+  const [viewMode, setViewMode] = useState('list');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
 
@@ -91,9 +91,11 @@ function App() {
 
   if (loading) {
     return (
-      <div style={styles.loading}>
-        <div style={styles.spinner}></div>
-        <p>Loading notes...</p>
+      <div style={styles.loadingContainer}>
+        <div style={styles.loadingContent}>
+          <div style={styles.loadingSpinner}></div>
+          <p style={styles.loadingText}>Loading your notes...</p>
+        </div>
       </div>
     );
   }
@@ -101,14 +103,17 @@ function App() {
   return (
     <div style={styles.container}>
       <header style={styles.header}>
-        <h1 style={styles.title}>📝 Note Sharing</h1>
-        <p style={styles.subtitle}>Create, share, and discover public notes</p>
+        <div style={styles.headerContent}>
+          <h1 style={styles.logo}>📝 NoteShare</h1>
+          <p style={styles.tagline}>Secure note sharing with password protection</p>
+        </div>
       </header>
 
       {error && (
-        <div style={styles.error}>
-          {error}
-          <button onClick={() => setError(null)} style={styles.errorClose}>×</button>
+        <div style={styles.errorBanner}>
+          <span style={styles.errorIcon}>⚠️</span>
+          <span style={styles.errorText}>{error}</span>
+          <button onClick={() => setError(null)} style={styles.errorClose}>✕</button>
         </div>
       )}
 
@@ -121,7 +126,8 @@ function App() {
             }}
             style={styles.createButton}
           >
-            + Create New Note
+            <span style={styles.createIcon}>+</span>
+            Create New Note
           </button>
           <NoteList 
             notes={notes} 
@@ -154,85 +160,124 @@ function App() {
 
 const styles = {
   container: {
-    maxWidth: '1200px',
+    maxWidth: '1280px',
     margin: '0 auto',
-    padding: '20px'
+    padding: '20px',
+    width: '100%'
   },
   header: {
+    marginBottom: '32px',
     textAlign: 'center',
-    marginBottom: '30px',
-    color: 'white'
+    animation: 'fadeIn 0.5s ease'
   },
-  title: {
-    fontSize: '2.5rem',
-    fontWeight: 'bold',
-    marginBottom: '10px',
-    textShadow: '2px 2px 4px rgba(0,0,0,0.2)'
-  },
-  subtitle: {
-    fontSize: '1.1rem',
-    opacity: 0.9
-  },
-  createButton: {
-    backgroundColor: '#4CAF50',
-    color: 'white',
-    padding: '12px 24px',
-    border: 'none',
-    borderRadius: '8px',
-    fontSize: '1rem',
-    fontWeight: 'bold',
-    cursor: 'pointer',
-    marginBottom: '20px',
-    transition: 'transform 0.2s, box-shadow 0.2s',
-    boxShadow: '0 4px 6px rgba(0,0,0,0.1)'
-  },
-  loading: {
+  headerContent: {
     display: 'flex',
     flexDirection: 'column',
     alignItems: 'center',
-    justifyContent: 'center',
-    minHeight: '100vh',
-    color: 'white'
+    gap: '8px'
   },
-  spinner: {
-    width: '50px',
-    height: '50px',
-    border: '5px solid rgba(255,255,255,0.3)',
-    borderTop: '5px solid white',
-    borderRadius: '50%',
-    animation: 'spin 1s linear infinite',
-    marginBottom: '20px'
-  },
-  error: {
-    backgroundColor: '#ff4444',
+  logo: {
+    fontSize: 'clamp(2rem, 5vw, 3rem)',
+    fontWeight: '800',
     color: 'white',
-    padding: '12px 20px',
-    borderRadius: '8px',
+    textShadow: '0 2px 4px rgba(0,0,0,0.1)',
+    letterSpacing: '-0.5px'
+  },
+  tagline: {
+    fontSize: 'clamp(0.9rem, 1.5vw, 1.1rem)',
+    color: 'rgba(255,255,255,0.85)',
+    fontWeight: '400'
+  },
+  createButton: {
+    backgroundColor: 'white',
+    color: 'var(--primary)',
+    padding: 'clamp(12px, 2vw, 16px) clamp(20px, 3vw, 32px)',
+    border: 'none',
+    borderRadius: 'var(--radius)',
+    fontSize: 'clamp(0.95rem, 1.5vw, 1.05rem)',
+    fontWeight: '600',
+    cursor: 'pointer',
+    marginBottom: '24px',
+    transition: 'var(--transition)',
+    boxShadow: 'var(--shadow-lg)',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: '8px',
+    width: '100%',
+    maxWidth: '320px',
+    marginLeft: 'auto',
+    marginRight: 'auto'
+  },
+  createButtonHover: {
+    transform: 'translateY(-2px)',
+    boxShadow: 'var(--shadow-xl)'
+  },
+  createIcon: {
+    fontSize: '1.5rem',
+    fontWeight: '300'
+  },
+  loadingContainer: {
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    minHeight: '100vh'
+  },
+  loadingContent: {
+    display: 'flex',
+    flexDirection: 'column',
+    alignItems: 'center',
+    gap: '20px'
+  },
+  loadingSpinner: {
+    width: '48px',
+    height: '48px',
+    border: '4px solid rgba(255,255,255,0.2)',
+    borderTopColor: 'white',
+    borderRadius: '50%',
+    animation: 'spin 0.8s linear infinite'
+  },
+  loadingText: {
+    color: 'white',
+    fontSize: '1rem',
+    fontWeight: '500'
+  },
+  errorBanner: {
+    backgroundColor: 'white',
+    color: 'var(--danger)',
+    padding: 'clamp(12px, 2vw, 16px) clamp(16px, 2.5vw, 24px)',
+    borderRadius: 'var(--radius)',
     marginBottom: '20px',
     display: 'flex',
-    justifyContent: 'space-between',
     alignItems: 'center',
-    animation: 'slideDown 0.3s ease'
+    gap: '12px',
+    boxShadow: 'var(--shadow-md)',
+    animation: 'fadeIn 0.3s ease'
+  },
+  errorIcon: {
+    fontSize: '1.2rem'
+  },
+  errorText: {
+    flex: 1,
+    fontSize: 'clamp(0.9rem, 1.2vw, 1rem)'
   },
   errorClose: {
     background: 'none',
     border: 'none',
-    color: 'white',
-    fontSize: '1.5rem',
+    color: 'var(--gray-400)',
+    fontSize: '1.2rem',
     cursor: 'pointer',
-    padding: '0 5px'
+    padding: '4px 8px',
+    borderRadius: 'var(--radius-sm)',
+    transition: 'var(--transition)'
   }
 };
 
-// Add keyframes to document
+// Add keyframes
 const styleSheet = document.createElement('style');
 styleSheet.textContent = `
   @keyframes spin {
     to { transform: rotate(360deg); }
-  }
-  @keyframes slideDown {
-    from { transform: translateY(-20px); opacity: 0; }
-    to { transform: translateY(0); opacity: 1; }
   }
 `;
 document.head.appendChild(styleSheet);
