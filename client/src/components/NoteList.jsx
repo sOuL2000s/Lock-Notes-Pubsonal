@@ -26,7 +26,6 @@ function NoteList({ notes, onViewNote, onEditNote, onDeleteNote }) {
   };
 
   const handleActionWithPassword = (noteId, action, title) => {
-    // All notes now have passwords, so always show the password modal
     const note = notes.find(n => n._id === noteId);
     
     setPasswordModal({
@@ -42,7 +41,6 @@ function NoteList({ notes, onViewNote, onEditNote, onDeleteNote }) {
   const performAction = async (noteId, action, password) => {
     try {
       if (action === 'view') {
-        // Pass the password to the view handler so NoteViewer can auto-verify
         await onViewNote(noteId, password);
       } else if (action === 'edit') {
         const note = notes.find(n => n._id === noteId);
@@ -50,15 +48,13 @@ function NoteList({ notes, onViewNote, onEditNote, onDeleteNote }) {
       } else if (action === 'delete') {
         await onDeleteNote(noteId, password);
       }
-      // Close modal on success
       resetModal();
     } catch (error) {
-      // If error is 401 (Unauthorized), show password modal again
       if (error.response?.status === 401) {
         setPasswordModal(prev => ({
           ...prev,
           attempts: prev.attempts + 1,
-          isOpen: true // Reopen the modal
+          isOpen: true
         }));
       }
       throw error;
@@ -89,7 +85,6 @@ function NoteList({ notes, onViewNote, onEditNote, onDeleteNote }) {
         ) : (
           <div style={styles.grid}>
             {notes.map((note) => {
-              // All notes now have passwords
               return (
                 <div key={note._id} style={styles.card}>
                   <div style={styles.cardHeader}>
@@ -98,9 +93,10 @@ function NoteList({ notes, onViewNote, onEditNote, onDeleteNote }) {
                   </div>
                   
                   <p style={styles.cardContent}>
-                    {note.content.length > 120 
-                      ? note.content.substring(0, 120) + '...' 
-                      : note.content}
+                    🔒 {note.content && note.content.length > 0 ? 'ENCRYPTED_NOTE' : 'EMPTY_NOTE'}
+                    <span style={{ fontSize: '0.65rem', opacity: 0.4, display: 'block', marginTop: '4px' }}>
+                      [{note.content ? note.content.length : 0} characters encrypted]
+                    </span>
                   </p>
                   
                   <div style={styles.cardFooter}>
@@ -214,10 +210,6 @@ const styles = {
     flex: 1,
     marginBottom: '16px',
     wordBreak: 'break-word',
-    display: '-webkit-box',
-    WebkitLineClamp: 3,
-    WebkitBoxOrient: 'vertical',
-    overflow: 'hidden',
     fontFamily: 'monospace'
   },
   cardFooter: {

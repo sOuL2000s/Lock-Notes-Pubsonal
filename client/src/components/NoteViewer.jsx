@@ -13,17 +13,13 @@ function NoteViewer({ note, preVerifiedPassword = '', onEdit, onDelete, onBack }
   const [isPasswordVerified, setIsPasswordVerified] = useState(false);
   const [viewPassword, setViewPassword] = useState('');
 
-  // Check if we have a pre-verified password from the list
   useEffect(() => {
     if (preVerifiedPassword) {
-      // Auto-verify with the password from the list
       handleAutoVerify(preVerifiedPassword);
     }
   }, [preVerifiedPassword]);
 
-  // Reset verification when note changes
   useEffect(() => {
-    // Only reset if we don't have a pre-verified password
     if (!preVerifiedPassword) {
       setIsPasswordVerified(false);
       setViewPassword('');
@@ -38,7 +34,6 @@ function NoteViewer({ note, preVerifiedPassword = '', onEdit, onDelete, onBack }
       setViewPassword(password);
       setAttempts(0);
     } catch (error) {
-      // If auto-verify fails, show password modal
       setIsPasswordVerified(false);
       setShowPasswordModal(true);
     }
@@ -64,7 +59,6 @@ function NoteViewer({ note, preVerifiedPassword = '', onEdit, onDelete, onBack }
       setShowPasswordModal(false);
       setAttempts(0);
       
-      // Perform the requested action after verification
       if (passwordAction === 'edit') {
         onEdit(note);
       } else if (passwordAction === 'delete') {
@@ -118,38 +112,175 @@ function NoteViewer({ note, preVerifiedPassword = '', onEdit, onDelete, onBack }
     }, 30000);
   };
 
-  const renderContent = (content) => {
-    const lines = content.split('\n');
-    return lines.map((line, index) => {
-      if (line.startsWith('### ')) {
-        return <h3 key={index} style={styles.paragraphHeader}>{line.substring(4)}</h3>;
+  const renderInlineFormatting = (text) => {
+    if (!text) return text;
+    
+    const parts = [];
+    let remaining = text;
+    let lastIndex = 0;
+    
+    // Bold: **text**
+    const boldRegex = /\*\*(.+?)\*\*/g;
+    let match;
+    while ((match = boldRegex.exec(text)) !== null) {
+      if (match.index > lastIndex) {
+        parts.push(text.substring(lastIndex, match.index));
       }
-      if (line.startsWith('## ')) {
-        return <h2 key={index} style={styles.paragraphHeader}>{line.substring(3)}</h2>;
-      }
-      if (line.startsWith('# ')) {
-        return <h1 key={index} style={styles.paragraphHeader}>{line.substring(2)}</h1>;
-      }
-      const imgMatch = line.match(/<img src="([^"]+)"[^>]*>/);
-      if (imgMatch) {
-        return <img key={index} src={imgMatch[1]} alt="Note image" style={styles.image} />;
-      }
-      const linkMatch = line.match(/\[Link: ([^\]]+)\]/);
-      if (linkMatch) {
-        return <p key={index} style={styles.paragraph}>🔗 {linkMatch[1]}</p>;
-      }
-      const boldMatch = line.match(/\*\*(.+?)\*\*/);
-      if (boldMatch) {
-        return <p key={index} style={styles.paragraph}><strong>{boldMatch[1]}</strong></p>;
-      }
-      if (line.trim()) {
-        return <p key={index} style={styles.paragraph}>{line}</p>;
-      }
-      return <br key={index} />;
-    });
+      parts.push(<strong key={`bold-${match.index}`}>{match[1]}</strong>);
+      lastIndex = match.index + match[0].length;
+    }
+    
+    if (lastIndex < text.length) {
+      parts.push(text.substring(lastIndex));
+    }
+    
+    if (parts.length === 0) return text;
+    return <>{parts}</>;
   };
 
-  // Show lock screen for all notes until password is verified
+  const renderContent = (content) => {
+    if (!content) return null;
+    
+    const lines = content.split('\n');
+    const elements = [];
+    let inCodeBlock = false;
+    let codeContent = [];
+    let listItems = [];
+    let listType = null;
+    
+    const flushList = () => {
+      if (listItems.length > 0) {
+        const ListTag = listType === 'ol' ? 'ol' : 'ul';
+        elements.push(
+          React.createElement(
+            ListTag,
+            { key: `list-${elements.length}`, style: styles.list },
+            listItems.map((item, i) => 
+              React.createElement('li', { key: `li-${i}`, style: styles.listItem }, item)
+            )
+          )
+        );
+        listItems = [];
+        listType = null;
+      }
+    };
+    
+    for (let i = 0; i < lines.length; i++) {
+      let line = lines[i];
+      
+      // Code block handling
+      if (line.startsWith('```')) {
+        if (!inCodeBlock) {
+          flushList();
+          inCodeBlock = true;
+          codeContent = [];
+          continue;
+        } else {
+          inCodeBlock = false;
+          elements.push(
+            <pre key={`code-${i}`} style={styles.codeBlock}>
+              <code>{codeContent.join('\n')}</code>
+            </pre>
+          );
+          continue;
+        }
+      }
+      
+      if (inCodeBlock) {
+        codeContent.push(line);
+        continue;
+      }
+      
+      // Headers
+      if (line.startsWith('### ')) {
+        flushList();
+        elements.push(
+          <h3 key={i} style={styles.header3}>
+            {renderInlineFormatting(line.substring(4))}
+          </h3>
+        );
+        continue;
+      }
+      if (line.startsWith('## ')) {
+        flushList();
+        elements.push(
+          <h2 key={i} style={styles.header2}>
+            {renderInlineFormatting(line.substring(3))}
+          </h2>
+        );
+        continue;
+      }
+      if (line.startsWith('# ')) {
+        flushList();
+        elements.push(
+          <h1 key={i} style={styles.header1}>
+            {renderInlineFormatting(line.substring(2))}
+          </h1>
+        );
+        continue;
+      }
+      
+      // Lists
+      if (line.match(/^-\s/)) {
+        listType = 'ul';
+        listItems.push(renderInlineFormatting(line.substring(2)));
+        continue;
+      }
+      if (line.match(/^\d+\.\s/)) {
+        listType = 'ol';
+        listItems.push(renderInlineFormatting(line.replace(/^\d+\.\s/, '')));
+        continue;
+      }
+      
+      // Blockquote
+      if (line.startsWith('> ')) {
+        flushList();
+        elements.push(
+          <blockquote key={i} style={styles.blockquote}>
+            {renderInlineFormatting(line.substring(2))}
+          </blockquote>
+        );
+        continue;
+      }
+      
+      // Images
+      const imgMatch = line.match(/<img\s+src="([^"]+)"[^>]*>/);
+      if (imgMatch) {
+        flushList();
+        elements.push(
+          <img 
+            key={i} 
+            src={imgMatch[1]} 
+            alt="Note image" 
+            style={styles.image}
+            onError={(e) => {
+              e.target.style.display = 'none';
+            }}
+          />
+        );
+        continue;
+      }
+      
+      // Empty line - flush list and add spacing
+      if (line.trim() === '') {
+        flushList();
+        elements.push(<br key={i} />);
+        continue;
+      }
+      
+      // Regular paragraph
+      flushList();
+      elements.push(
+        <p key={i} style={styles.paragraph}>
+          {renderInlineFormatting(line)}
+        </p>
+      );
+    }
+    
+    flushList();
+    return elements;
+  };
+
   if (!isPasswordVerified) {
     return (
       <div style={styles.container}>
@@ -269,7 +400,6 @@ function NoteViewer({ note, preVerifiedPassword = '', onEdit, onDelete, onBack }
   );
 }
 
-// Styles remain the same...
 const styles = {
   container: {
     padding: '20px 0',
@@ -369,10 +499,58 @@ const styles = {
     wordBreak: 'break-word',
     whiteSpace: 'pre-wrap'
   },
-  paragraphHeader: {
+  header1: {
+    marginBottom: '16px',
+    marginTop: '8px',
+    color: '#00ff41',
+    fontSize: 'clamp(1.8rem, 3vw, 2.2rem)',
+    fontWeight: '700',
+    fontFamily: 'monospace',
+    borderBottom: '1px solid rgba(0, 255, 65, 0.1)',
+    paddingBottom: '8px'
+  },
+  header2: {
     marginBottom: '12px',
+    marginTop: '8px',
+    color: '#00ff41',
+    fontSize: 'clamp(1.4rem, 2.5vw, 1.8rem)',
+    fontWeight: '600',
+    fontFamily: 'monospace'
+  },
+  header3: {
+    marginBottom: '10px',
+    marginTop: '6px',
+    color: '#00ff41',
+    fontSize: 'clamp(1.1rem, 2vw, 1.4rem)',
+    fontWeight: '600',
+    fontFamily: 'monospace'
+  },
+  list: {
+    marginBottom: '12px',
+    paddingLeft: '24px',
     color: '#00ff41',
     fontFamily: 'monospace'
+  },
+  listItem: {
+    marginBottom: '4px'
+  },
+  blockquote: {
+    borderLeft: '3px solid #00ff41',
+    paddingLeft: '16px',
+    margin: '12px 0',
+    opacity: 0.7,
+    fontStyle: 'italic',
+    fontFamily: 'monospace'
+  },
+  codeBlock: {
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    border: '1px solid rgba(0, 255, 65, 0.1)',
+    borderRadius: '4px',
+    padding: '12px 16px',
+    margin: '12px 0',
+    overflow: 'auto',
+    fontFamily: 'monospace',
+    color: '#00ff41'
   },
   image: {
     maxWidth: '100%',

@@ -1,13 +1,16 @@
 // client/src/components/NoteEditor.jsx
 import React, { useState, useEffect, useRef } from 'react';
-import { Eye, EyeOff, Image, Link, Bold, Italic, Underline, AlignLeft, AlignCenter, AlignRight } from 'lucide-react';
+import { 
+  Eye, EyeOff, Image, Link, Bold, Italic, Underline, 
+  List, ListOrdered, Code, Quote, Heading1, Heading2, Heading3, 
+  Upload, X
+} from 'lucide-react';
 
 function NoteEditor({ note, onSave, onCancel }) {
   const [title, setTitle] = useState('');
   const [content, setContent] = useState('');
   const [password, setPassword] = useState('');
   const [currentPassword, setCurrentPassword] = useState('');
-  // Remove isPasswordProtected state - always protected
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [showPassword, setShowPassword] = useState(false);
@@ -16,12 +19,12 @@ function NoteEditor({ note, onSave, onCancel }) {
   const [imageUrl, setImageUrl] = useState('');
   const [showImageModal, setShowImageModal] = useState(false);
   const contentRef = useRef(null);
+  const fileInputRef = useRef(null);
 
   useEffect(() => {
     if (note) {
       setTitle(note.title || '');
       setContent(note.content || '');
-      // Password is always required, so we don't need isPasswordProtected
     } else {
       setTitle('');
       setContent('');
@@ -40,7 +43,6 @@ function NoteEditor({ note, onSave, onCancel }) {
       return false;
     }
     
-    // Optional: Add more strength requirements
     const hasMinLength = pwd.length >= 6;
     const hasLowercase = /[a-z]/.test(pwd);
     const hasUppercase = /[A-Z]/.test(pwd);
@@ -66,13 +68,50 @@ function NoteEditor({ note, onSave, onCancel }) {
     validatePassword(newPassword);
   };
 
-  const handleInsertImage = () => {
-    if (imageUrl) {
-      const imgTag = `<img src="${imageUrl}" alt="Note image" style="max-width: 100%; border-radius: 4px; margin: 8px 0;" />`;
-      insertText(imgTag);
-      setImageUrl('');
-      setShowImageModal(false);
+  const handlePaste = async (e) => {
+    const items = e.clipboardData?.items;
+    if (!items) return;
+
+    for (const item of items) {
+      if (item.type.startsWith('image/')) {
+        e.preventDefault();
+        const file = item.getAsFile();
+        await uploadImage(file);
+        return;
+      }
     }
+  };
+
+  const handleFileUpload = async (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    
+    if (!file.type.startsWith('image/')) {
+      setError('Please select an image file');
+      return;
+    }
+    
+    if (file.size > 5 * 1024 * 1024) {
+      setError('Image size must be less than 5MB');
+      return;
+    }
+
+    await uploadImage(file);
+    e.target.value = '';
+  };
+
+  const uploadImage = (file) => {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        const dataUrl = e.target.result;
+        const imgTag = `<img src="${dataUrl}" alt="Uploaded image" style="max-width: 100%; border-radius: 4px; margin: 8px 0; display: block;" />`;
+        insertText(imgTag);
+        resolve();
+      };
+      reader.onerror = reject;
+      reader.readAsDataURL(file);
+    });
   };
 
   const insertText = (text) => {
@@ -90,7 +129,7 @@ function NoteEditor({ note, onSave, onCancel }) {
     }, 0);
   };
 
-  const handleFormat = (format) => {
+  const wrapSelection = (prefix, suffix = '') => {
     const textarea = contentRef.current;
     if (!textarea) return;
     
@@ -98,21 +137,17 @@ function NoteEditor({ note, onSave, onCancel }) {
     const end = textarea.selectionEnd;
     const selectedText = content.substring(start, end);
     
-    let formatted = '';
-    switch(format) {
-      case 'bold':
-        formatted = `**${selectedText}**`;
-        break;
-      case 'italic':
-        formatted = `*${selectedText}*`;
-        break;
-      case 'underline':
-        formatted = `__${selectedText}__`;
-        break;
-      default:
-        return;
+    if (start === end) {
+      const newContent = content.substring(0, start) + prefix + suffix + content.substring(end);
+      setContent(newContent);
+      setTimeout(() => {
+        textarea.focus();
+        textarea.selectionStart = textarea.selectionEnd = start + prefix.length;
+      }, 0);
+      return;
     }
     
+    const formatted = prefix + selectedText + suffix;
     const newContent = content.substring(0, start) + formatted + content.substring(end);
     setContent(newContent);
     
@@ -121,6 +156,62 @@ function NoteEditor({ note, onSave, onCancel }) {
       textarea.selectionStart = start;
       textarea.selectionEnd = start + formatted.length;
     }, 0);
+  };
+
+  const handleFormat = (type) => {
+    switch(type) {
+      case 'bold':
+        wrapSelection('**', '**');
+        break;
+      case 'italic':
+        wrapSelection('*', '*');
+        break;
+      case 'underline':
+        wrapSelection('__', '__');
+        break;
+      case 'code':
+        wrapSelection('`', '`');
+        break;
+      case 'codeBlock':
+        wrapSelection('```\n', '\n```');
+        break;
+      case 'quote':
+        wrapSelection('> ', '');
+        break;
+      case 'h1':
+        wrapSelection('# ', '');
+        break;
+      case 'h2':
+        wrapSelection('## ', '');
+        break;
+      case 'h3':
+        wrapSelection('### ', '');
+        break;
+      case 'ul':
+        wrapSelection('- ', '');
+        break;
+      case 'ol':
+        wrapSelection('1. ', '');
+        break;
+      case 'link': {
+        const url = prompt('Enter URL:');
+        if (url) {
+          wrapSelection(`[`, `](${url})`);
+        }
+        break;
+      }
+      default:
+        break;
+    }
+  };
+
+  const handleInsertImage = () => {
+    if (imageUrl.trim()) {
+      const imgTag = `<img src="${imageUrl}" alt="Note image" style="max-width: 100%; border-radius: 4px; margin: 8px 0; display: block;" />`;
+      insertText(imgTag);
+      setImageUrl('');
+      setShowImageModal(false);
+    }
   };
 
   const handleSubmit = async (e) => {
@@ -132,7 +223,7 @@ function NoteEditor({ note, onSave, onCancel }) {
       const noteData = {
         title: title.trim(),
         content: content.trim(),
-        password: password, // Always send password
+        password: password,
         currentPassword: note ? currentPassword : undefined
       };
 
@@ -148,7 +239,6 @@ function NoteEditor({ note, onSave, onCancel }) {
         return;
       }
 
-      // --- PASSWORD IS ALWAYS REQUIRED FOR NEW NOTES ---
       if (!note) {
         if (!password) {
           setError('PASSWORD_REQUIRED: Encryption key required');
@@ -162,14 +252,12 @@ function NoteEditor({ note, onSave, onCancel }) {
         }
       }
 
-      // For editing existing notes, current password is required
       if (note) {
         if (!currentPassword) {
           setError('CURRENT_PASSWORD_REQUIRED: Enter current password to make changes');
           setLoading(false);
           return;
         }
-        // If new password provided, validate it
         if (password && !validatePassword(password)) {
           setError(passwordValidation.message);
           setLoading(false);
@@ -214,36 +302,85 @@ function NoteEditor({ note, onSave, onCancel }) {
           <div style={styles.formGroup}>
             <label style={styles.label}>CONTENT</label>
             <div style={styles.toolbar}>
-              <button type="button" onClick={() => handleFormat('bold')} style={styles.toolbarButton}>
+              <button type="button" onClick={() => handleFormat('h1')} style={styles.toolbarButton} title="Heading 1">
+                <Heading1 size={16} />
+              </button>
+              <button type="button" onClick={() => handleFormat('h2')} style={styles.toolbarButton} title="Heading 2">
+                <Heading2 size={16} />
+              </button>
+              <button type="button" onClick={() => handleFormat('h3')} style={styles.toolbarButton} title="Heading 3">
+                <Heading3 size={16} />
+              </button>
+              <div style={styles.toolbarDivider} />
+              <button type="button" onClick={() => handleFormat('bold')} style={styles.toolbarButton} title="Bold">
                 <Bold size={16} />
               </button>
-              <button type="button" onClick={() => handleFormat('italic')} style={styles.toolbarButton}>
+              <button type="button" onClick={() => handleFormat('italic')} style={styles.toolbarButton} title="Italic">
                 <Italic size={16} />
               </button>
-              <button type="button" onClick={() => handleFormat('underline')} style={styles.toolbarButton}>
+              <button type="button" onClick={() => handleFormat('underline')} style={styles.toolbarButton} title="Underline">
                 <Underline size={16} />
               </button>
               <div style={styles.toolbarDivider} />
-              <button type="button" onClick={() => setShowImageModal(true)} style={styles.toolbarButton}>
-                <Image size={16} />
+              <button type="button" onClick={() => handleFormat('ul')} style={styles.toolbarButton} title="Bullet List">
+                <List size={16} />
               </button>
-              <button type="button" onClick={() => insertText('\n[Link: ]')} style={styles.toolbarButton}>
+              <button type="button" onClick={() => handleFormat('ol')} style={styles.toolbarButton} title="Numbered List">
+                <ListOrdered size={16} />
+              </button>
+              <div style={styles.toolbarDivider} />
+              <button type="button" onClick={() => handleFormat('code')} style={styles.toolbarButton} title="Inline Code">
+                <Code size={16} />
+              </button>
+              <button type="button" onClick={() => handleFormat('codeBlock')} style={styles.toolbarButton} title="Code Block">
+                <Code size={16} style={{ fontSize: '20px' }} />
+              </button>
+              <button type="button" onClick={() => handleFormat('quote')} style={styles.toolbarButton} title="Quote">
+                <Quote size={16} />
+              </button>
+              <div style={styles.toolbarDivider} />
+              <button type="button" onClick={() => handleFormat('link')} style={styles.toolbarButton} title="Link">
                 <Link size={16} />
               </button>
+              <button type="button" onClick={() => setShowImageModal(true)} style={styles.toolbarButton} title="Insert Image URL">
+                <Image size={16} />
+              </button>
+              <button 
+                type="button" 
+                onClick={() => fileInputRef.current?.click()} 
+                style={styles.toolbarButton} 
+                title="Upload Image"
+              >
+                <Upload size={16} />
+              </button>
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept="image/*"
+                onChange={handleFileUpload}
+                style={{ display: 'none' }}
+              />
             </div>
             
             <textarea
               ref={contentRef}
               value={content}
               onChange={(e) => setContent(e.target.value)}
-              placeholder="Write your note content here... (Supports Markdown)"
+              onPaste={handlePaste}
+              placeholder="Write your note content here... (Supports Markdown)
+              
+Toolbar shortcuts:
+• Bold: **text**
+• Italic: *text*
+• Headers: # ## ###
+• Lists: - or 1.
+• Images: Paste from clipboard or use upload button"
               style={styles.textarea}
-              rows="12"
+              rows="15"
               disabled={loading}
             />
           </div>
 
-          {/* Always show password field for new notes */}
           {!note && (
             <div style={styles.formGroup}>
               <label style={styles.label}>ENCRYPTION_KEY <span style={{ color: '#ff0044' }}>*</span></label>
@@ -276,7 +413,6 @@ function NoteEditor({ note, onSave, onCancel }) {
             </div>
           )}
 
-          {/* For editing: current password is always required */}
           {note && (
             <div style={styles.formGroup}>
               <label style={styles.label}>CURRENT_PASSWORD <span style={{ color: '#ff0044' }}>*</span></label>
@@ -304,7 +440,6 @@ function NoteEditor({ note, onSave, onCancel }) {
             </div>
           )}
 
-          {/* Optional new password field when editing */}
           {note && (
             <div style={styles.formGroup}>
               <label style={styles.label}>NEW_ENCRYPTION_KEY (optional)</label>
@@ -362,11 +497,19 @@ function NoteEditor({ note, onSave, onCancel }) {
         </form>
       </div>
 
-      {/* Image Modal */}
       {showImageModal && (
         <div style={styles.imageModalOverlay} onClick={() => setShowImageModal(false)}>
           <div style={styles.imageModal} onClick={(e) => e.stopPropagation()}>
-            <h3 style={styles.imageModalTitle}>// INSERT_IMAGE</h3>
+            <div style={styles.imageModalHeader}>
+              <h3 style={styles.imageModalTitle}>// INSERT_IMAGE</h3>
+              <button onClick={() => setShowImageModal(false)} style={styles.imageModalClose}>
+                <X size={20} />
+              </button>
+            </div>
+            <div style={styles.imageModalHint}>
+              <p>📋 Paste an image from clipboard directly into the editor</p>
+              <p>🖼️ Or upload an image using the upload button in the toolbar</p>
+            </div>
             <input
               type="text"
               value={imageUrl}
@@ -376,7 +519,14 @@ function NoteEditor({ note, onSave, onCancel }) {
             />
             <div style={styles.imageModalActions}>
               <button onClick={handleInsertImage} style={styles.imageModalSubmit}>
-                INSERT
+                INSERT_URL
+              </button>
+              <button 
+                onClick={() => fileInputRef.current?.click()} 
+                style={styles.imageModalUpload}
+              >
+                <Upload size={16} style={{ marginRight: '6px' }} />
+                UPLOAD
               </button>
               <button onClick={() => setShowImageModal(false)} style={styles.imageModalCancel}>
                 CANCEL
@@ -389,7 +539,6 @@ function NoteEditor({ note, onSave, onCancel }) {
   );
 }
 
-// Styles remain the same...
 const styles = {
   container: {
     padding: '20px 0',
@@ -451,7 +600,7 @@ const styles = {
     outline: 'none',
     backgroundColor: 'rgba(0, 0, 0, 0.5)',
     color: '#00ff41',
-    minHeight: '150px',
+    minHeight: '200px',
     lineHeight: '1.8'
   },
   toolbar: {
@@ -474,7 +623,9 @@ const styles = {
     transition: 'all 0.3s ease',
     display: 'flex',
     alignItems: 'center',
-    justifyContent: 'center'
+    justifyContent: 'center',
+    minWidth: '32px',
+    height: '32px'
   },
   toolbarDivider: {
     width: '1px',
@@ -574,25 +725,49 @@ const styles = {
     left: 0,
     right: 0,
     bottom: 0,
-    backgroundColor: 'rgba(0, 0, 0, 0.8)',
+    backgroundColor: 'rgba(0, 0, 0, 0.85)',
+    backdropFilter: 'blur(8px)',
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'center',
-    zIndex: 10000
+    zIndex: 10000,
+    padding: '16px'
   },
   imageModal: {
     backgroundColor: '#0a0a0a',
     border: '1px solid #00ff41',
     borderRadius: '4px',
     padding: '30px',
-    maxWidth: '400px',
-    width: '90%'
+    maxWidth: '500px',
+    width: '100%',
+    boxShadow: '0 0 40px rgba(0, 255, 65, 0.2)'
+  },
+  imageModalHeader: {
+    display: 'flex',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: '16px'
   },
   imageModalTitle: {
     color: '#00ff41',
     fontSize: '1rem',
+    fontFamily: 'monospace',
+    margin: 0
+  },
+  imageModalClose: {
+    background: 'none',
+    border: '1px solid rgba(0, 255, 65, 0.2)',
+    color: '#00ff41',
+    cursor: 'pointer',
+    padding: '4px 8px',
+    borderRadius: '2px'
+  },
+  imageModalHint: {
+    backgroundColor: 'rgba(0, 255, 65, 0.05)',
+    padding: '12px',
+    borderRadius: '2px',
     marginBottom: '16px',
-    fontFamily: 'monospace'
+    border: '1px solid rgba(0, 255, 65, 0.1)'
   },
   imageModalInput: {
     width: '100%',
@@ -607,7 +782,8 @@ const styles = {
   },
   imageModalActions: {
     display: 'flex',
-    gap: '10px'
+    gap: '10px',
+    flexWrap: 'wrap'
   },
   imageModalSubmit: {
     backgroundColor: 'rgba(0, 255, 65, 0.1)',
@@ -617,7 +793,22 @@ const styles = {
     borderRadius: '2px',
     cursor: 'pointer',
     fontFamily: 'monospace',
-    flex: 1
+    flex: 1,
+    minWidth: '80px'
+  },
+  imageModalUpload: {
+    backgroundColor: 'rgba(255, 165, 0, 0.1)',
+    color: '#ffa500',
+    padding: '10px 20px',
+    border: '1px solid #ffa500',
+    borderRadius: '2px',
+    cursor: 'pointer',
+    fontFamily: 'monospace',
+    flex: 1,
+    minWidth: '80px',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center'
   },
   imageModalCancel: {
     backgroundColor: 'rgba(255, 255, 255, 0.05)',
@@ -627,7 +818,8 @@ const styles = {
     borderRadius: '2px',
     cursor: 'pointer',
     fontFamily: 'monospace',
-    flex: 1
+    flex: 1,
+    minWidth: '80px'
   }
 };
 
