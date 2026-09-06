@@ -1,5 +1,7 @@
+// client/src/components/NoteList.jsx
 import React, { useState } from 'react';
 import PasswordModal from './PasswordModal';
+import { Eye, Edit, Trash2, Lock, Calendar } from 'lucide-react';
 
 function NoteList({ notes, onViewNote, onEditNote, onDeleteNote }) {
   const [passwordModal, setPasswordModal] = useState({
@@ -13,6 +15,7 @@ function NoteList({ notes, onViewNote, onEditNote, onDeleteNote }) {
 
   const handleActionWithPassword = (noteId, action, title) => {
     const note = notes.find(n => n._id === noteId);
+    // Check if note has password protection
     if (note?.password) {
       setPasswordModal({
         isOpen: true,
@@ -23,6 +26,7 @@ function NoteList({ notes, onViewNote, onEditNote, onDeleteNote }) {
         isLocked: false
       });
     } else {
+      // No password required, perform action directly
       performAction(noteId, action, '');
     }
   };
@@ -38,10 +42,12 @@ function NoteList({ notes, onViewNote, onEditNote, onDeleteNote }) {
         await onDeleteNote(noteId, password);
       }
     } catch (error) {
+      // If error is 401 (Unauthorized), show password modal again
       if (error.response?.status === 401) {
         setPasswordModal(prev => ({
           ...prev,
-          attempts: prev.attempts + 1
+          attempts: prev.attempts + 1,
+          isOpen: true // Reopen the modal
         }));
         throw error;
       }
@@ -67,9 +73,9 @@ function NoteList({ notes, onViewNote, onEditNote, onDeleteNote }) {
       <div style={styles.container}>
         {notes.length === 0 ? (
           <div style={styles.emptyState}>
-            <span style={styles.emptyIcon}>📝</span>
-            <h3 style={styles.emptyTitle}>No notes yet</h3>
-            <p style={styles.emptyText}>Create your first note to get started</p>
+            <div style={styles.emptyIcon}>📡</div>
+            <h3 style={styles.emptyTitle}>// NO_NOTES_FOUND</h3>
+            <p style={styles.emptyText}>[ INITIALIZE_NEW_NOTE_TO_BEGIN ]</p>
           </div>
         ) : (
           <div style={styles.grid}>
@@ -78,7 +84,7 @@ function NoteList({ notes, onViewNote, onEditNote, onDeleteNote }) {
                 <div style={styles.cardHeader}>
                   <h3 style={styles.cardTitle}>{note.title}</h3>
                   {note.password && (
-                    <span style={styles.lockBadge}>🔒</span>
+                    <Lock size={14} style={styles.lockBadge} />
                   )}
                 </div>
                 
@@ -90,6 +96,7 @@ function NoteList({ notes, onViewNote, onEditNote, onDeleteNote }) {
                 
                 <div style={styles.cardFooter}>
                   <span style={styles.cardDate}>
+                    <Calendar size={12} style={{ marginRight: '4px' }} />
                     {new Date(note.createdAt).toLocaleDateString('en-US', {
                       month: 'short',
                       day: 'numeric',
@@ -97,7 +104,7 @@ function NoteList({ notes, onViewNote, onEditNote, onDeleteNote }) {
                     })}
                   </span>
                   {note.password && (
-                    <span style={styles.protectedBadge}>🔒 Protected</span>
+                    <span style={styles.protectedBadge}>🔒 ENCRYPTED</span>
                   )}
                 </div>
                 
@@ -106,19 +113,22 @@ function NoteList({ notes, onViewNote, onEditNote, onDeleteNote }) {
                     onClick={() => handleActionWithPassword(note._id, 'view', note.title)}
                     style={styles.viewButton}
                   >
-                    👁️ View
+                    <Eye size={14} style={{ marginRight: '4px' }} />
+                    VIEW
                   </button>
                   <button 
                     onClick={() => handleActionWithPassword(note._id, 'edit', note.title)}
                     style={styles.editButton}
                   >
-                    ✏️ Edit
+                    <Edit size={14} style={{ marginRight: '4px' }} />
+                    EDIT
                   </button>
                   <button 
                     onClick={() => handleActionWithPassword(note._id, 'delete', note.title)}
                     style={styles.deleteButton}
                   >
-                    🗑️ Delete
+                    <Trash2 size={14} style={{ marginRight: '4px' }} />
+                    DELETE
                   </button>
                 </div>
               </div>
@@ -153,15 +163,18 @@ const styles = {
     width: '100%'
   },
   card: {
-    backgroundColor: 'white',
-    borderRadius: 'var(--radius, 12px)',
+    backgroundColor: '#0a0a0a',
+    border: '1px solid rgba(0, 255, 65, 0.15)',
+    borderRadius: '4px',
     padding: '20px',
-    boxShadow: 'var(--shadow-md, 0 4px 6px -1px rgba(0,0,0,0.1))',
-    transition: 'var(--transition, all 0.3s ease)',
+    boxShadow: '0 0 20px rgba(0, 255, 65, 0.02)',
+    transition: 'all 0.3s ease',
     display: 'flex',
     flexDirection: 'column',
     width: '100%',
-    animation: 'fadeIn 0.3s ease'
+    animation: 'fadeIn 0.3s ease',
+    position: 'relative',
+    overflow: 'hidden'
   },
   cardHeader: {
     display: 'flex',
@@ -171,28 +184,33 @@ const styles = {
     gap: '8px'
   },
   cardTitle: {
-    color: 'var(--gray-800, #1F2937)',
-    fontSize: 'clamp(1.1rem, 1.8vw, 1.2rem)',
-    fontWeight: '600',
+    color: '#00ff41',
+    fontSize: 'clamp(1rem, 1.8vw, 1.2rem)',
+    fontWeight: '700',
     margin: 0,
     wordBreak: 'break-word',
-    flex: 1
+    flex: 1,
+    fontFamily: 'monospace',
+    letterSpacing: '0.5px'
   },
   lockBadge: {
-    fontSize: '1rem',
+    color: '#00ff41',
+    opacity: 0.6,
     flexShrink: 0
   },
   cardContent: {
-    color: 'var(--gray-600, #4B5563)',
+    color: '#00ff41',
+    opacity: 0.7,
     fontSize: 'clamp(0.85rem, 1.2vw, 0.95rem)',
-    lineHeight: '1.6',
+    lineHeight: '1.8',
     flex: 1,
     marginBottom: '16px',
     wordBreak: 'break-word',
     display: '-webkit-box',
     WebkitLineClamp: 3,
     WebkitBoxOrient: 'vertical',
-    overflow: 'hidden'
+    overflow: 'hidden',
+    fontFamily: 'monospace'
   },
   cardFooter: {
     display: 'flex',
@@ -200,21 +218,28 @@ const styles = {
     alignItems: 'center',
     marginBottom: '14px',
     paddingTop: '12px',
-    borderTop: '1px solid var(--gray-200, #E5E7EB)',
+    borderTop: '1px solid rgba(0, 255, 65, 0.05)',
     flexWrap: 'wrap',
     gap: '8px'
   },
   cardDate: {
-    fontSize: 'clamp(0.75rem, 1vw, 0.85rem)',
-    color: 'var(--gray-400, #9CA3AF)'
+    fontSize: 'clamp(0.7rem, 1vw, 0.8rem)',
+    color: '#00ff41',
+    opacity: 0.4,
+    fontFamily: 'monospace',
+    display: 'flex',
+    alignItems: 'center'
   },
   protectedBadge: {
-    backgroundColor: '#FEF3C7',
-    color: '#92400E',
+    backgroundColor: 'rgba(0, 255, 65, 0.05)',
+    color: '#00ff41',
     padding: '2px 10px',
-    borderRadius: '12px',
-    fontSize: 'clamp(0.65rem, 0.8vw, 0.75rem)',
-    fontWeight: '600'
+    borderRadius: '2px',
+    fontSize: 'clamp(0.6rem, 0.8vw, 0.7rem)',
+    fontWeight: '700',
+    fontFamily: 'monospace',
+    letterSpacing: '1px',
+    border: '1px solid rgba(0, 255, 65, 0.1)'
   },
   cardActions: {
     display: 'flex',
@@ -222,50 +247,62 @@ const styles = {
     flexWrap: 'wrap'
   },
   viewButton: {
-    backgroundColor: 'var(--primary, #4F46E5)',
-    color: 'white',
+    backgroundColor: 'rgba(0, 255, 65, 0.05)',
+    color: '#00ff41',
     padding: '8px 12px',
-    border: 'none',
-    borderRadius: 'var(--radius-sm, 6px)',
+    border: '1px solid rgba(0, 255, 65, 0.2)',
+    borderRadius: '2px',
     cursor: 'pointer',
-    fontSize: 'clamp(0.8rem, 1vw, 0.85rem)',
-    fontWeight: '500',
+    fontSize: 'clamp(0.7rem, 1vw, 0.8rem)',
+    fontWeight: '600',
     flex: 1,
     minWidth: '60px',
-    transition: 'var(--transition, all 0.3s ease)'
+    transition: 'all 0.3s ease',
+    fontFamily: 'monospace',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center'
   },
   editButton: {
-    backgroundColor: 'var(--warning, #F59E0B)',
-    color: 'white',
+    backgroundColor: 'rgba(255, 165, 0, 0.05)',
+    color: '#ffa500',
     padding: '8px 12px',
-    border: 'none',
-    borderRadius: 'var(--radius-sm, 6px)',
+    border: '1px solid rgba(255, 165, 0, 0.2)',
+    borderRadius: '2px',
     cursor: 'pointer',
-    fontSize: 'clamp(0.8rem, 1vw, 0.85rem)',
-    fontWeight: '500',
+    fontSize: 'clamp(0.7rem, 1vw, 0.8rem)',
+    fontWeight: '600',
     flex: 1,
     minWidth: '60px',
-    transition: 'var(--transition, all 0.3s ease)'
+    transition: 'all 0.3s ease',
+    fontFamily: 'monospace',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center'
   },
   deleteButton: {
-    backgroundColor: 'var(--danger, #EF4444)',
-    color: 'white',
+    backgroundColor: 'rgba(255, 0, 68, 0.05)',
+    color: '#ff0044',
     padding: '8px 12px',
-    border: 'none',
-    borderRadius: 'var(--radius-sm, 6px)',
+    border: '1px solid rgba(255, 0, 68, 0.2)',
+    borderRadius: '2px',
     cursor: 'pointer',
-    fontSize: 'clamp(0.8rem, 1vw, 0.85rem)',
-    fontWeight: '500',
+    fontSize: 'clamp(0.7rem, 1vw, 0.8rem)',
+    fontWeight: '600',
     flex: 1,
     minWidth: '60px',
-    transition: 'var(--transition, all 0.3s ease)'
+    transition: 'all 0.3s ease',
+    fontFamily: 'monospace',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center'
   },
   emptyState: {
     textAlign: 'center',
     padding: '60px 20px',
-    backgroundColor: 'white',
-    borderRadius: 'var(--radius, 12px)',
-    boxShadow: 'var(--shadow-md, 0 4px 6px -1px rgba(0,0,0,0.1))',
+    backgroundColor: '#0a0a0a',
+    border: '1px solid rgba(0, 255, 65, 0.1)',
+    borderRadius: '4px',
     width: '100%',
     animation: 'fadeIn 0.3s ease'
   },
@@ -275,13 +312,17 @@ const styles = {
     marginBottom: '16px'
   },
   emptyTitle: {
-    fontSize: '1.3rem',
-    color: 'var(--gray-700, #374151)',
-    marginBottom: '8px'
+    fontSize: '1.2rem',
+    color: '#00ff41',
+    marginBottom: '8px',
+    fontFamily: 'monospace',
+    letterSpacing: '2px'
   },
   emptyText: {
-    fontSize: '1rem',
-    color: 'var(--gray-400, #9CA3AF)'
+    fontSize: '0.9rem',
+    color: '#00ff41',
+    opacity: 0.4,
+    fontFamily: 'monospace'
   }
 };
 

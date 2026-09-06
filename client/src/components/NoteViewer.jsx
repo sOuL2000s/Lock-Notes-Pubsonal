@@ -1,18 +1,64 @@
-import React, { useState } from 'react';
+// client/src/components/NoteViewer.jsx
+import React, { useState, useEffect } from 'react';
 import PasswordModal from './PasswordModal';
+import { api } from '../services/api';
+import { Edit, Trash2, Lock, Unlock, Calendar, ArrowLeft } from 'lucide-react';
 
 function NoteViewer({ note, onEdit, onDelete, onBack }) {
   const [loading, setLoading] = useState(false);
   const [showPasswordModal, setShowPasswordModal] = useState(false);
   const [passwordAction, setPasswordAction] = useState('view');
-  const [isLocked, setIsLocked] = useState(false);
   const [attempts, setAttempts] = useState(0);
+  const [isLocked, setIsLocked] = useState(false);
   const [isPasswordVerified, setIsPasswordVerified] = useState(false);
+  const [viewPassword, setViewPassword] = useState('');
 
-  // Check if password is required for viewing
-  const needsPasswordForView = note?.password && !isPasswordVerified;
+  // Reset verification when note changes
+  useEffect(() => {
+    setIsPasswordVerified(false);
+    setViewPassword('');
+  }, [note?._id]);
+
+  const verifyPassword = async (password) => {
+    try {
+      // Make a small update to verify the password
+      await api.updateNote(note._id, {
+        title: note.title,
+        content: note.content,
+        currentPassword: password
+      });
+      return true;
+    } catch (error) {
+      if (error.response?.status === 401) {
+        throw new Error('Invalid password');
+      }
+      throw error;
+    }
+  };
+
+  const handlePasswordVerify = async (password) => {
+    try {
+      await verifyPassword(password);
+      setIsPasswordVerified(true);
+      setViewPassword(password);
+      setShowPasswordModal(false);
+      setAttempts(0);
+      
+      // Perform the requested action after verification
+      if (passwordAction === 'edit') {
+        onEdit(note);
+      } else if (passwordAction === 'delete') {
+        await onDelete(note._id, password);
+      }
+      return true;
+    } catch (error) {
+      setAttempts(prev => prev + 1);
+      throw error;
+    }
+  };
 
   const handleViewRequest = () => {
+    // Always show password modal for protected notes
     if (note.password && !isPasswordVerified) {
       setPasswordAction('view');
       setShowPasswordModal(true);
@@ -20,40 +66,30 @@ function NoteViewer({ note, onEdit, onDelete, onBack }) {
   };
 
   const handleEditClick = () => {
+    // Always require password for protected notes
     if (note.password && !isPasswordVerified) {
       setPasswordAction('edit');
       setShowPasswordModal(true);
+    } else if (note.password && isPasswordVerified) {
+      // Already verified, proceed with edit
+      onEdit(note);
     } else {
+      // No password, proceed with edit
       onEdit(note);
     }
   };
 
   const handleDeleteClick = () => {
+    // Always require password for protected notes
     if (note.password && !isPasswordVerified) {
       setPasswordAction('delete');
       setShowPasswordModal(true);
+    } else if (note.password && isPasswordVerified) {
+      // Already verified, proceed with delete
+      handleDelete(viewPassword);
     } else {
+      // No password, proceed with delete
       handleDelete('');
-    }
-  };
-
-  const handlePasswordVerify = async (password) => {
-    try {
-      // Verify the password by attempting to get the note with password
-      // Or by checking against the stored hash
-      // For now, we'll use the existing API verification
-      await onDelete(note._id, password); // This will fail if wrong password
-      // If successful, mark as verified
-      setIsPasswordVerified(true);
-      setShowPasswordModal(false);
-      setAttempts(0);
-      return true;
-    } catch (error) {
-      if (error.response?.status === 401) {
-        setAttempts(prev => prev + 1);
-        throw error;
-      }
-      throw error;
     }
   };
 
@@ -67,37 +103,6 @@ function NoteViewer({ note, onEdit, onDelete, onBack }) {
     }
   };
 
-  const handlePasswordSuccess = async (password) => {
-    setShowPasswordModal(false);
-    
-    if (passwordAction === 'view') {
-      // Just verify and show the note
-      try {
-        await handlePasswordVerify(password);
-        setIsPasswordVerified(true);
-      } catch (error) {
-        // Password verification failed, but we'll let the modal handle it
-        throw error;
-      }
-    } else if (passwordAction === 'edit') {
-      // Verify first, then proceed to edit
-      try {
-        await handlePasswordVerify(password);
-        onEdit(note);
-      } catch (error) {
-        throw error;
-      }
-    } else if (passwordAction === 'delete') {
-      // Verify first, then delete
-      try {
-        await handlePasswordVerify(password);
-        await handleDelete(password);
-      } catch (error) {
-        throw error;
-      }
-    }
-  };
-
   const handleLocked = () => {
     setIsLocked(true);
     setTimeout(() => {
@@ -106,26 +111,59 @@ function NoteViewer({ note, onEdit, onDelete, onBack }) {
     }, 30000);
   };
 
-  // If password is required for viewing, show a lock screen
-  if (needsPasswordForView) {
+  const renderContent = (content) => {
+    const lines = content.split('\n');
+    return lines.map((line, index) => {
+      if (line.startsWith('### ')) {
+        return <h3 key={index} style={styles.paragraphHeader}>{line.substring(4)}</h3>;
+      }
+      if (line.startsWith('## ')) {
+        return <h2 key={index} style={styles.paragraphHeader}>{line.substring(3)}</h2>;
+      }
+      if (line.startsWith('# ')) {
+        return <h1 key={index} style={styles.paragraphHeader}>{line.substring(2)}</h1>;
+      }
+      const imgMatch = line.match(/<img src="([^"]+)"[^>]*>/);
+      if (imgMatch) {
+        return <img key={index} src={imgMatch[1]} alt="Note image" style={styles.image} />;
+      }
+      const linkMatch = line.match(/\[Link: ([^\]]+)\]/);
+      if (linkMatch) {
+        return <p key={index} style={styles.paragraph}>🔗 {linkMatch[1]}</p>;
+      }
+      const boldMatch = line.match(/\*\*(.+?)\*\*/);
+      if (boldMatch) {
+        return <p key={index} style={styles.paragraph}><strong>{boldMatch[1]}</strong></p>;
+      }
+      if (line.trim()) {
+        return <p key={index} style={styles.paragraph}>{line}</p>;
+      }
+      return <br key={index} />;
+    });
+  };
+
+  // Show lock screen for protected notes that haven't been verified
+  if (note.password && !isPasswordVerified) {
     return (
       <div style={styles.container}>
         <div style={styles.card}>
           <button onClick={onBack} style={styles.backButton}>
-            ← Back to all notes
+            <ArrowLeft size={16} style={{ marginRight: '8px' }} />
+            BACK
           </button>
           
           <div style={styles.lockContainer}>
-            <div style={styles.lockIcon}>🔒</div>
-            <h3 style={styles.lockTitle}>Password Protected</h3>
+            <Lock size={48} style={styles.lockIcon} />
+            <h3 style={styles.lockTitle}>// ENCRYPTED_NOTE</h3>
             <p style={styles.lockDescription}>
-              This note is encrypted. Please verify your identity to view its contents.
+              [ DECRYPTION_KEY_REQUIRED ]
             </p>
             <button 
               onClick={handleViewRequest}
               style={styles.unlockButton}
             >
-              Enter Password to View
+              <Unlock size={16} style={{ marginRight: '8px' }} />
+              DECRYPT_NOTE
             </button>
           </div>
         </div>
@@ -136,7 +174,7 @@ function NoteViewer({ note, onEdit, onDelete, onBack }) {
             setShowPasswordModal(false);
             setPasswordAction('view');
           }}
-          onVerify={handlePasswordSuccess}
+          onVerify={handlePasswordVerify}
           noteTitle={note?.title}
           action="view"
           attempts={attempts}
@@ -147,42 +185,42 @@ function NoteViewer({ note, onEdit, onDelete, onBack }) {
     );
   }
 
-  // Show the note content after verification
   return (
     <>
       <div style={styles.container}>
         <div style={styles.card}>
           <button onClick={onBack} style={styles.backButton}>
-            ← Back to all notes
+            <ArrowLeft size={16} style={{ marginRight: '8px' }} />
+            BACK
           </button>
           
           <div style={styles.noteHeader}>
             <h2 style={styles.title}>{note.title}</h2>
             {note.password && (
-              <span style={styles.verifiedBadge}>🔓 Verified</span>
+              <span style={styles.verifiedBadge}>
+                <Unlock size={12} style={{ marginRight: '4px' }} />
+                DECRYPTED
+              </span>
             )}
           </div>
           
           <div style={styles.meta}>
             <span style={styles.date}>
-              Created: {new Date(note.createdAt).toLocaleDateString()}
+              <Calendar size={14} style={{ marginRight: '6px' }} />
+              CREATED: {new Date(note.createdAt).toLocaleDateString()}
             </span>
             {note.updatedAt && note.updatedAt !== note.createdAt && (
               <span style={styles.date}>
-                Updated: {new Date(note.updatedAt).toLocaleDateString()}
+                UPDATED: {new Date(note.updatedAt).toLocaleDateString()}
               </span>
             )}
             {note.password && (
-              <span style={styles.protected}>🔒 Password Protected</span>
+              <span style={styles.protected}>🔒 ENCRYPTED</span>
             )}
           </div>
 
           <div style={styles.content}>
-            {note.content.split('\n').map((paragraph, index) => (
-              <p key={index} style={styles.paragraph}>
-                {paragraph}
-              </p>
-            ))}
+            {renderContent(note.content)}
           </div>
 
           <div style={styles.actions}>
@@ -191,7 +229,8 @@ function NoteViewer({ note, onEdit, onDelete, onBack }) {
               style={styles.editButton}
               disabled={loading}
             >
-              ✏️ Edit Note
+              <Edit size={16} style={{ marginRight: '8px' }} />
+              EDIT_NOTE
             </button>
             
             <button
@@ -199,7 +238,12 @@ function NoteViewer({ note, onEdit, onDelete, onBack }) {
               style={styles.deleteButton}
               disabled={loading}
             >
-              {loading ? 'Deleting...' : '🗑️ Delete Note'}
+              {loading ? 'PROCESSING...' : (
+                <>
+                  <Trash2 size={16} style={{ marginRight: '8px' }} />
+                  DELETE_NOTE
+                </>
+              )}
             </button>
           </div>
         </div>
@@ -211,7 +255,7 @@ function NoteViewer({ note, onEdit, onDelete, onBack }) {
           setShowPasswordModal(false);
           setPasswordAction('view');
         }}
-        onVerify={handlePasswordSuccess}
+        onVerify={handlePasswordVerify}
         noteTitle={note?.title}
         action={passwordAction}
         attempts={attempts}
@@ -229,26 +273,29 @@ const styles = {
     width: '100%'
   },
   card: {
-    backgroundColor: 'white',
-    borderRadius: 'var(--radius, 12px)',
+    backgroundColor: '#0a0a0a',
+    border: '1px solid rgba(0, 255, 65, 0.15)',
+    borderRadius: '4px',
     padding: 'clamp(24px, 4vw, 40px)',
-    boxShadow: '0 10px 25px rgba(0,0,0,0.1)',
+    boxShadow: '0 0 40px rgba(0, 255, 65, 0.02)',
     maxWidth: '800px',
     margin: '0 auto',
     width: '100%'
   },
   backButton: {
     background: 'none',
-    border: 'none',
-    color: 'var(--primary, #4F46E5)',
-    fontSize: 'clamp(0.85rem, 1.5vw, 0.95rem)',
-    fontWeight: '500',
+    border: '1px solid rgba(0, 255, 65, 0.1)',
+    color: '#00ff41',
+    fontSize: 'clamp(0.8rem, 1.5vw, 0.9rem)',
+    fontWeight: '600',
     cursor: 'pointer',
-    padding: '0 0 16px 0',
-    display: 'block',
-    width: '100%',
-    textAlign: 'left',
-    transition: 'var(--transition, all 0.3s ease)'
+    padding: '8px 16px',
+    marginBottom: '20px',
+    borderRadius: '2px',
+    transition: 'all 0.3s ease',
+    fontFamily: 'monospace',
+    display: 'inline-flex',
+    alignItems: 'center'
   },
   noteHeader: {
     display: 'flex',
@@ -259,20 +306,25 @@ const styles = {
     marginBottom: '12px'
   },
   title: {
-    color: 'var(--gray-900, #111827)',
+    color: '#00ff41',
     fontSize: 'clamp(1.5rem, 4vw, 2.2rem)',
     fontWeight: '700',
     margin: 0,
-    wordBreak: 'break-word'
+    wordBreak: 'break-word',
+    fontFamily: 'monospace'
   },
   verifiedBadge: {
-    backgroundColor: '#D1FAE5',
-    color: '#065F46',
+    backgroundColor: 'rgba(0, 255, 65, 0.05)',
+    color: '#00ff41',
     padding: '4px 12px',
-    borderRadius: '20px',
-    fontSize: '0.8rem',
-    fontWeight: '600',
-    whiteSpace: 'nowrap'
+    borderRadius: '2px',
+    fontSize: '0.7rem',
+    fontWeight: '700',
+    fontFamily: 'monospace',
+    whiteSpace: 'nowrap',
+    border: '1px solid rgba(0, 255, 65, 0.2)',
+    display: 'flex',
+    alignItems: 'center'
   },
   meta: {
     display: 'flex',
@@ -280,70 +332,92 @@ const styles = {
     flexWrap: 'wrap',
     marginBottom: '24px',
     paddingBottom: '16px',
-    borderBottom: '1px solid var(--gray-200, #E5E7EB)'
+    borderBottom: '1px solid rgba(0, 255, 65, 0.05)'
   },
   date: {
-    color: 'var(--gray-500, #6B7280)',
-    fontSize: 'clamp(0.8rem, 1.2vw, 0.9rem)'
+    color: '#00ff41',
+    opacity: 0.4,
+    fontSize: 'clamp(0.7rem, 1.2vw, 0.8rem)',
+    fontFamily: 'monospace',
+    display: 'flex',
+    alignItems: 'center'
   },
   protected: {
-    backgroundColor: '#FEF3C7',
-    color: '#92400E',
+    backgroundColor: 'rgba(255, 165, 0, 0.05)',
+    color: '#ffa500',
     padding: '2px 12px',
-    borderRadius: '20px',
-    fontSize: 'clamp(0.7rem, 1vw, 0.8rem)',
-    fontWeight: '600'
+    borderRadius: '2px',
+    fontSize: 'clamp(0.6rem, 1vw, 0.7rem)',
+    fontWeight: '700',
+    fontFamily: 'monospace',
+    border: '1px solid rgba(255, 165, 0, 0.2)'
   },
   content: {
     marginBottom: '30px',
     lineHeight: '1.8',
-    color: 'var(--gray-700, #374151)',
-    fontSize: 'clamp(0.95rem, 1.5vw, 1.05rem)'
+    color: '#00ff41',
+    opacity: 0.8,
+    fontSize: 'clamp(0.95rem, 1.5vw, 1.05rem)',
+    fontFamily: 'monospace'
   },
   paragraph: {
-    marginBottom: '16px',
-    wordBreak: 'break-word'
+    marginBottom: '12px',
+    wordBreak: 'break-word',
+    whiteSpace: 'pre-wrap'
+  },
+  paragraphHeader: {
+    marginBottom: '12px',
+    color: '#00ff41',
+    fontFamily: 'monospace'
+  },
+  image: {
+    maxWidth: '100%',
+    borderRadius: '4px',
+    margin: '12px 0',
+    border: '1px solid rgba(0, 255, 65, 0.1)'
   },
   actions: {
     display: 'flex',
     gap: '12px',
     flexWrap: 'wrap',
-    borderTop: '1px solid var(--gray-200, #E5E7EB)',
+    borderTop: '1px solid rgba(0, 255, 65, 0.05)',
     paddingTop: '20px'
   },
   editButton: {
-    backgroundColor: 'var(--primary, #4F46E5)',
-    color: 'white',
+    backgroundColor: 'rgba(0, 255, 65, 0.05)',
+    color: '#00ff41',
     padding: 'clamp(10px, 1.5vw, 12px) clamp(20px, 3vw, 28px)',
-    border: 'none',
-    borderRadius: 'var(--radius-sm, 6px)',
+    border: '1px solid rgba(0, 255, 65, 0.2)',
+    borderRadius: '2px',
     cursor: 'pointer',
-    fontSize: 'clamp(0.85rem, 1.2vw, 0.95rem)',
-    fontWeight: '600',
+    fontSize: 'clamp(0.8rem, 1.2vw, 0.9rem)',
+    fontWeight: '700',
     flex: 1,
     minWidth: '120px',
-    transition: 'var(--transition, all 0.3s ease)',
+    transition: 'all 0.3s ease',
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'center',
-    gap: '6px'
+    gap: '6px',
+    fontFamily: 'monospace'
   },
   deleteButton: {
-    backgroundColor: 'var(--danger, #EF4444)',
-    color: 'white',
+    backgroundColor: 'rgba(255, 0, 68, 0.05)',
+    color: '#ff0044',
     padding: 'clamp(10px, 1.5vw, 12px) clamp(20px, 3vw, 28px)',
-    border: 'none',
-    borderRadius: 'var(--radius-sm, 6px)',
+    border: '1px solid rgba(255, 0, 68, 0.2)',
+    borderRadius: '2px',
     cursor: 'pointer',
-    fontSize: 'clamp(0.85rem, 1.2vw, 0.95rem)',
-    fontWeight: '600',
+    fontSize: 'clamp(0.8rem, 1.2vw, 0.9rem)',
+    fontWeight: '700',
     flex: 1,
     minWidth: '120px',
-    transition: 'var(--transition, all 0.3s ease)',
+    transition: 'all 0.3s ease',
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'center',
-    gap: '6px'
+    gap: '6px',
+    fontFamily: 'monospace'
   },
   lockContainer: {
     display: 'flex',
@@ -353,31 +427,40 @@ const styles = {
     textAlign: 'center'
   },
   lockIcon: {
-    fontSize: '4rem',
-    marginBottom: '16px'
+    color: '#00ff41',
+    marginBottom: '16px',
+    opacity: 0.6
   },
   lockTitle: {
-    fontSize: 'clamp(1.3rem, 2.5vw, 1.6rem)',
-    color: 'var(--gray-800, #1F2937)',
-    marginBottom: '8px'
+    fontSize: 'clamp(1.2rem, 2.5vw, 1.5rem)',
+    color: '#00ff41',
+    marginBottom: '8px',
+    fontFamily: 'monospace',
+    letterSpacing: '2px'
   },
   lockDescription: {
-    fontSize: 'clamp(0.95rem, 1.5vw, 1.05rem)',
-    color: 'var(--gray-500, #6B7280)',
+    fontSize: 'clamp(0.8rem, 1.5vw, 0.9rem)',
+    color: '#00ff41',
+    opacity: 0.4,
     marginBottom: '24px',
-    maxWidth: '400px'
+    maxWidth: '400px',
+    fontFamily: 'monospace'
   },
   unlockButton: {
-    backgroundColor: 'var(--primary, #4F46E5)',
-    color: 'white',
+    backgroundColor: 'rgba(0, 255, 65, 0.05)',
+    color: '#00ff41',
     padding: '12px 32px',
-    border: 'none',
-    borderRadius: 'var(--radius-sm, 6px)',
-    fontSize: '1rem',
-    fontWeight: '600',
+    border: '1px solid #00ff41',
+    borderRadius: '2px',
+    fontSize: '0.9rem',
+    fontWeight: '700',
     cursor: 'pointer',
-    transition: 'var(--transition, all 0.3s ease)',
-    boxShadow: 'var(--shadow-md, 0 4px 6px -1px rgba(0,0,0,0.1))'
+    transition: 'all 0.3s ease',
+    boxShadow: '0 0 20px rgba(0, 255, 65, 0.05)',
+    fontFamily: 'monospace',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center'
   }
 };
 

@@ -1,8 +1,10 @@
+// client/src/App.jsx
 import React, { useState, useEffect } from 'react';
 import NoteList from './components/NoteList';
 import NoteEditor from './components/NoteEditor';
 import NoteViewer from './components/NoteViewer';
 import { api } from './services/api';
+import { Terminal, Plus, AlertTriangle } from 'lucide-react';
 
 function App() {
   const [notes, setNotes] = useState([]);
@@ -22,7 +24,7 @@ function App() {
       setNotes(data.notes || []);
       setError(null);
     } catch (err) {
-      setError('Failed to load notes');
+      setError('FAILED_TO_LOAD_NOTES');
       console.error(err);
     } finally {
       setLoading(false);
@@ -36,7 +38,7 @@ function App() {
       setViewMode('list');
       setCurrentNote(null);
     } catch (err) {
-      setError(err.response?.data?.error || 'Failed to create note');
+      setError(err.response?.data?.error || 'CREATE_FAILED');
       throw err;
     }
   };
@@ -48,7 +50,7 @@ function App() {
       setViewMode('list');
       setCurrentNote(null);
     } catch (err) {
-      setError(err.response?.data?.error || 'Failed to update note');
+      setError(err.response?.data?.error || 'UPDATE_FAILED');
       throw err;
     }
   };
@@ -62,7 +64,7 @@ function App() {
         setViewMode('list');
       }
     } catch (err) {
-      setError(err.response?.data?.error || 'Failed to delete note');
+      setError(err.response?.data?.error || 'DELETE_FAILED');
       throw err;
     }
   };
@@ -73,7 +75,7 @@ function App() {
       setCurrentNote(note);
       setViewMode('view');
     } catch (err) {
-      setError('Failed to load note');
+      setError('LOAD_NOTE_FAILED');
       console.error(err);
     }
   };
@@ -94,7 +96,7 @@ function App() {
       <div style={styles.loadingContainer}>
         <div style={styles.loadingContent}>
           <div style={styles.loadingSpinner}></div>
-          <p style={styles.loadingText}>Loading your notes...</p>
+          <p style={styles.loadingText}>INITIALIZING_SYSTEM...</p>
         </div>
       </div>
     );
@@ -104,15 +106,16 @@ function App() {
     <div style={styles.container}>
       <header style={styles.header}>
         <div style={styles.headerContent}>
-          <h1 style={styles.logo}>📝 NoteShare</h1>
-          <p style={styles.tagline}>Secure note sharing with password protection</p>
+          <Terminal size={28} color="#00ff41" />
+          <h1 style={styles.logo}>// NOTE_SHARE</h1>
+          <p style={styles.tagline}>[ SECURE_NOTE_SYSTEM ]</p>
         </div>
       </header>
 
       {error && (
         <div style={styles.errorBanner}>
-          <span style={styles.errorIcon}>⚠️</span>
-          <span style={styles.errorText}>{error}</span>
+          <AlertTriangle size={18} style={styles.errorIcon} />
+          <span style={styles.errorText}>⚠️ {error}</span>
           <button onClick={() => setError(null)} style={styles.errorClose}>✕</button>
         </div>
       )}
@@ -126,8 +129,8 @@ function App() {
             }}
             style={styles.createButton}
           >
-            <span style={styles.createIcon}>+</span>
-            Create New Note
+            <Plus size={18} style={styles.createIcon} />
+            CREATE_NOTE
           </button>
           <NoteList 
             notes={notes} 
@@ -174,54 +177,56 @@ const styles = {
     display: 'flex',
     flexDirection: 'column',
     alignItems: 'center',
-    gap: '8px'
+    gap: '4px'
   },
   logo: {
     fontSize: 'clamp(2rem, 5vw, 3rem)',
     fontWeight: '800',
-    color: 'white',
-    textShadow: '0 2px 4px rgba(0,0,0,0.1)',
-    letterSpacing: '-0.5px'
+    color: '#00ff41',
+    textShadow: '0 0 20px rgba(0, 255, 65, 0.3)',
+    letterSpacing: '2px',
+    fontFamily: 'monospace'
   },
   tagline: {
-    fontSize: 'clamp(0.9rem, 1.5vw, 1.1rem)',
-    color: 'rgba(255,255,255,0.85)',
-    fontWeight: '400'
+    fontSize: 'clamp(0.7rem, 1.5vw, 0.9rem)',
+    color: '#00ff41',
+    opacity: 0.5,
+    fontWeight: '400',
+    fontFamily: 'monospace',
+    letterSpacing: '4px'
   },
   createButton: {
-    backgroundColor: 'white',
-    color: 'var(--primary)',
+    backgroundColor: 'rgba(0, 255, 65, 0.05)',
+    color: '#00ff41',
     padding: 'clamp(12px, 2vw, 16px) clamp(20px, 3vw, 32px)',
-    border: 'none',
-    borderRadius: 'var(--radius)',
-    fontSize: 'clamp(0.95rem, 1.5vw, 1.05rem)',
-    fontWeight: '600',
+    border: '1px solid #00ff41',
+    borderRadius: '2px',
+    fontSize: 'clamp(0.8rem, 1.5vw, 0.95rem)',
+    fontWeight: '700',
     cursor: 'pointer',
     marginBottom: '24px',
-    transition: 'var(--transition)',
-    boxShadow: 'var(--shadow-lg)',
+    transition: 'all 0.3s ease',
+    boxShadow: '0 0 20px rgba(0, 255, 65, 0.05)',
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'center',
-    gap: '8px',
+    gap: '10px',
     width: '100%',
     maxWidth: '320px',
     marginLeft: 'auto',
-    marginRight: 'auto'
-  },
-  createButtonHover: {
-    transform: 'translateY(-2px)',
-    boxShadow: 'var(--shadow-xl)'
+    marginRight: 'auto',
+    fontFamily: 'monospace',
+    letterSpacing: '1px'
   },
   createIcon: {
-    fontSize: '1.5rem',
-    fontWeight: '300'
+    fontSize: '1.2rem'
   },
   loadingContainer: {
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'center',
-    minHeight: '100vh'
+    minHeight: '100vh',
+    background: '#0a0a0a'
   },
   loadingContent: {
     display: 'flex',
@@ -232,54 +237,50 @@ const styles = {
   loadingSpinner: {
     width: '48px',
     height: '48px',
-    border: '4px solid rgba(255,255,255,0.2)',
-    borderTopColor: 'white',
+    border: '3px solid rgba(0, 255, 65, 0.1)',
+    borderTopColor: '#00ff41',
     borderRadius: '50%',
     animation: 'spin 0.8s linear infinite'
   },
   loadingText: {
-    color: 'white',
-    fontSize: '1rem',
-    fontWeight: '500'
+    color: '#00ff41',
+    fontSize: '0.9rem',
+    fontWeight: '700',
+    fontFamily: 'monospace',
+    letterSpacing: '2px',
+    opacity: 0.6
   },
   errorBanner: {
-    backgroundColor: 'white',
-    color: 'var(--danger)',
+    backgroundColor: 'rgba(255, 0, 68, 0.1)',
+    color: '#ff0044',
     padding: 'clamp(12px, 2vw, 16px) clamp(16px, 2.5vw, 24px)',
-    borderRadius: 'var(--radius)',
+    borderRadius: '2px',
     marginBottom: '20px',
     display: 'flex',
     alignItems: 'center',
     gap: '12px',
-    boxShadow: 'var(--shadow-md)',
-    animation: 'fadeIn 0.3s ease'
+    border: '1px solid #ff0044',
+    animation: 'fadeIn 0.3s ease',
+    fontFamily: 'monospace'
   },
   errorIcon: {
-    fontSize: '1.2rem'
+    flexShrink: 0
   },
   errorText: {
     flex: 1,
-    fontSize: 'clamp(0.9rem, 1.2vw, 1rem)'
+    fontSize: 'clamp(0.8rem, 1.2vw, 0.9rem)'
   },
   errorClose: {
     background: 'none',
-    border: 'none',
-    color: 'var(--gray-400)',
-    fontSize: '1.2rem',
+    border: '1px solid #ff0044',
+    color: '#ff0044',
+    fontSize: '1rem',
     cursor: 'pointer',
-    padding: '4px 8px',
-    borderRadius: 'var(--radius-sm)',
-    transition: 'var(--transition)'
+    padding: '4px 10px',
+    borderRadius: '2px',
+    transition: 'all 0.3s ease',
+    fontFamily: 'monospace'
   }
 };
-
-// Add keyframes
-const styleSheet = document.createElement('style');
-styleSheet.textContent = `
-  @keyframes spin {
-    to { transform: rotate(360deg); }
-  }
-`;
-document.head.appendChild(styleSheet);
 
 export default App;

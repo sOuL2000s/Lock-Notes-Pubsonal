@@ -1,4 +1,6 @@
+// client/src/components/PasswordModal.jsx
 import React, { useState, useEffect } from 'react';
+import { Eye, EyeOff, Lock, Key, AlertTriangle } from 'lucide-react';
 
 function PasswordModal({ 
   isOpen, 
@@ -28,7 +30,7 @@ function PasswordModal({
   const handleSubmit = async (e) => {
     e.preventDefault();
     if (!password.trim()) {
-      setError('Please enter a password');
+      setError('ACCESS DENIED: Password required');
       return;
     }
 
@@ -44,13 +46,13 @@ function PasswordModal({
       setRemainingAttempts(maxAttempts - newAttempts);
       
       if (newAttempts >= maxAttempts) {
-        setError(`Too many failed attempts. Account locked for 30 seconds.`);
+        setError('⚠️ SYSTEM LOCKED: Maximum attempts exceeded. Cooldown: 30s');
         onLocked();
         setTimeout(() => {
           setRemainingAttempts(maxAttempts);
         }, 30000);
       } else {
-        setError(`Invalid password. ${maxAttempts - newAttempts} attempts remaining.`);
+        setError(`❌ INVALID CREDENTIALS: ${maxAttempts - newAttempts} attempts remaining`);
       }
       setPassword('');
       setLoading(false);
@@ -58,48 +60,50 @@ function PasswordModal({
   };
 
   const actionLabels = {
-    view: 'View',
-    edit: 'Edit',
-    delete: 'Delete',
-    create: 'Create'
+    view: 'VIEW',
+    edit: 'MODIFY',
+    delete: 'TERMINATE',
+    create: 'INITIALIZE'
   };
 
-  const actionLabel = actionLabels[action] || 'Access';
+  const actionLabel = actionLabels[action] || 'ACCESS';
 
   if (!isOpen) return null;
 
   return (
     <div style={styles.overlay} onClick={onClose}>
       <div style={styles.modal} onClick={(e) => e.stopPropagation()}>
+        <div style={styles.glitchLine} />
+        
         <div style={styles.header}>
           <div style={styles.iconWrapper}>
-            <span style={styles.icon}>🔒</span>
+            <Lock size={28} color="#00ff41" strokeWidth={1.5} />
           </div>
           <div style={styles.headerText}>
-            <h3 style={styles.title}>Password Required</h3>
+            <h3 style={styles.title}>// SECURE_ACCESS_REQUIRED</h3>
             <p style={styles.subtitle}>
-              Enter the password to {actionLabel.toLowerCase()} this note
+              {actionLabel}_OPERATION: {noteTitle || 'UNTITLED_NOTE'}
             </p>
           </div>
-          <button onClick={onClose} style={styles.closeButton} aria-label="Close">
+          <button onClick={onClose} style={styles.closeButton}>
             ✕
           </button>
         </div>
 
         <div style={styles.noteInfo}>
-          <span style={styles.noteLabel}>Note:</span>
-          <span style={styles.noteTitle}>{noteTitle || 'Untitled Note'}</span>
+          <span style={styles.noteLabel}>TARGET:</span>
+          <span style={styles.noteTitle}>{noteTitle || 'UNTITLED_NOTE'}</span>
         </div>
 
         <form onSubmit={handleSubmit}>
           <div style={styles.passwordField}>
-            <label style={styles.label}>Password</label>
+            <label style={styles.label}>ENCRYPTION_KEY</label>
             <div style={styles.inputWrapper}>
               <input
                 type={showPassword ? 'text' : 'password'}
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
-                placeholder="Enter note password"
+                placeholder="Enter decryption key..."
                 style={styles.input}
                 disabled={loading}
                 autoFocus
@@ -111,13 +115,14 @@ function PasswordModal({
                 style={styles.eyeButton}
                 aria-label="Toggle password visibility"
               >
-                {showPassword ? '👁️' : '👁️‍🗨️'}
+                {showPassword ? <EyeOff size={20} /> : <Eye size={20} />}
               </button>
             </div>
           </div>
 
           {error && (
-            <div style={error.includes('locked') ? styles.lockedMessage : styles.error}>
+            <div style={error.includes('LOCKED') ? styles.lockedMessage : styles.error}>
+              <AlertTriangle size={16} style={{ marginRight: '8px' }} />
               {error}
             </div>
           )}
@@ -131,7 +136,10 @@ function PasswordModal({
               {loading ? (
                 <span style={styles.loadingSpinner}></span>
               ) : (
-                `Unlock & ${actionLabel}`
+                <>
+                  <Key size={18} style={{ marginRight: '8px' }} />
+                  {actionLabel}_ACCESS
+                </>
               )}
             </button>
             <button
@@ -140,17 +148,16 @@ function PasswordModal({
               style={styles.cancelButton}
               disabled={loading}
             >
-              Cancel
+              ABORT
             </button>
           </div>
         </form>
 
         <div style={styles.footer}>
           <p style={styles.hint}>
-            💡 This note is protected with a password. 
-            {remainingAttempts > 0 && remainingAttempts < maxAttempts && (
+            [SECURITY_PROTOCOL] {remainingAttempts > 0 && remainingAttempts < maxAttempts && (
               <span style={styles.attemptsInfo}>
-                {' '}{remainingAttempts} attempts remaining
+                {remainingAttempts} attempts remaining
               </span>
             )}
           </p>
@@ -167,25 +174,36 @@ const styles = {
     left: 0,
     right: 0,
     bottom: 0,
-    backgroundColor: 'rgba(0, 0, 0, 0.6)',
-    backdropFilter: 'blur(8px)',
+    backgroundColor: 'rgba(0, 0, 0, 0.85)',
+    backdropFilter: 'blur(12px)',
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'center',
     zIndex: 9999,
     padding: '16px',
-    animation: 'fadeIn 0.25s ease'
+    animation: 'fadeIn 0.3s ease'
   },
   modal: {
-    backgroundColor: 'white',
-    borderRadius: 'var(--radius-lg, 16px)',
+    backgroundColor: '#0a0a0a',
+    border: '2px solid #00ff41',
+    borderRadius: '4px',
     padding: 'clamp(24px, 4vw, 40px)',
     maxWidth: '440px',
     width: '100%',
-    boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.25)',
+    boxShadow: '0 0 40px rgba(0, 255, 65, 0.2), inset 0 0 40px rgba(0, 255, 65, 0.05)',
     animation: 'slideUp 0.3s ease',
     maxHeight: '90vh',
-    overflowY: 'auto'
+    overflowY: 'auto',
+    position: 'relative'
+  },
+  glitchLine: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    height: '2px',
+    background: 'linear-gradient(90deg, transparent, #00ff41, transparent)',
+    animation: 'glitchLine 2s infinite'
   },
   header: {
     display: 'flex',
@@ -196,71 +214,82 @@ const styles = {
   iconWrapper: {
     width: '48px',
     height: '48px',
-    borderRadius: '50%',
-    background: 'var(--primary-gradient, linear-gradient(135deg, #4F46E5, #7C3AED))',
+    borderRadius: '4px',
+    border: '1px solid #00ff41',
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'center',
-    flexShrink: 0
-  },
-  icon: {
-    fontSize: '1.5rem'
+    flexShrink: 0,
+    background: 'rgba(0, 255, 65, 0.05)'
   },
   headerText: {
     flex: 1
   },
   title: {
-    fontSize: 'clamp(1.1rem, 2vw, 1.25rem)',
+    fontSize: 'clamp(0.9rem, 2vw, 1.1rem)',
     fontWeight: '700',
-    color: 'var(--gray-900, #111827)',
-    margin: 0
+    color: '#00ff41',
+    margin: 0,
+    fontFamily: 'monospace',
+    letterSpacing: '1px'
   },
   subtitle: {
-    fontSize: '0.9rem',
-    color: 'var(--gray-500, #6B7280)',
-    margin: '4px 0 0 0'
+    fontSize: '0.8rem',
+    color: '#00ff41',
+    opacity: 0.7,
+    margin: '4px 0 0 0',
+    fontFamily: 'monospace'
   },
   closeButton: {
     background: 'none',
-    border: 'none',
-    fontSize: '1.2rem',
-    color: 'var(--gray-400, #9CA3AF)',
+    border: '1px solid #00ff41',
+    fontSize: '1rem',
+    color: '#00ff41',
     cursor: 'pointer',
-    padding: '4px 8px',
-    borderRadius: 'var(--radius-sm, 6px)',
-    transition: 'var(--transition, all 0.3s ease)',
-    flexShrink: 0
+    padding: '4px 10px',
+    borderRadius: '2px',
+    transition: 'all 0.3s ease',
+    flexShrink: 0,
+    fontFamily: 'monospace',
+    background: 'rgba(0, 255, 65, 0.05)'
   },
   noteInfo: {
-    backgroundColor: 'var(--gray-50, #F9FAFB)',
+    backgroundColor: 'rgba(0, 255, 65, 0.05)',
     padding: '12px 16px',
-    borderRadius: 'var(--radius-sm, 6px)',
+    borderRadius: '2px',
     marginBottom: '20px',
     display: 'flex',
     alignItems: 'center',
     gap: '8px',
-    flexWrap: 'wrap'
+    flexWrap: 'wrap',
+    border: '1px solid rgba(0, 255, 65, 0.2)'
   },
   noteLabel: {
-    fontSize: '0.85rem',
-    fontWeight: '600',
-    color: 'var(--gray-500, #6B7280)'
+    fontSize: '0.75rem',
+    fontWeight: '700',
+    color: '#00ff41',
+    opacity: 0.6,
+    fontFamily: 'monospace'
   },
   noteTitle: {
-    fontSize: '0.95rem',
+    fontSize: '0.85rem',
     fontWeight: '500',
-    color: 'var(--gray-800, #1F2937)',
-    wordBreak: 'break-word'
+    color: '#00ff41',
+    wordBreak: 'break-word',
+    fontFamily: 'monospace'
   },
   passwordField: {
     marginBottom: '20px'
   },
   label: {
     display: 'block',
-    fontSize: '0.9rem',
-    fontWeight: '600',
-    color: 'var(--gray-700, #374151)',
-    marginBottom: '6px'
+    fontSize: '0.75rem',
+    fontWeight: '700',
+    color: '#00ff41',
+    opacity: 0.6,
+    marginBottom: '6px',
+    fontFamily: 'monospace',
+    letterSpacing: '1px'
   },
   inputWrapper: {
     position: 'relative'
@@ -269,12 +298,15 @@ const styles = {
     width: '100%',
     padding: '12px 16px',
     paddingRight: '48px',
-    border: '2px solid var(--gray-200, #E5E7EB)',
-    borderRadius: 'var(--radius-sm, 6px)',
+    border: '1px solid #00ff41',
+    borderRadius: '2px',
     fontSize: '1rem',
-    transition: 'var(--transition, all 0.3s ease)',
+    transition: 'all 0.3s ease',
     outline: 'none',
-    backgroundColor: 'white'
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    color: '#00ff41',
+    fontFamily: 'monospace',
+    boxShadow: 'inset 0 0 20px rgba(0, 255, 65, 0.05)'
   },
   eyeButton: {
     position: 'absolute',
@@ -283,28 +315,35 @@ const styles = {
     transform: 'translateY(-50%)',
     background: 'none',
     border: 'none',
-    fontSize: '1.1rem',
     cursor: 'pointer',
     padding: '4px',
-    color: 'var(--gray-400, #9CA3AF)'
+    color: '#00ff41',
+    opacity: 0.6,
+    transition: 'opacity 0.3s ease'
   },
   error: {
-    backgroundColor: '#FEF2F2',
-    color: 'var(--danger, #EF4444)',
+    backgroundColor: 'rgba(255, 0, 0, 0.1)',
+    color: '#ff0044',
     padding: '10px 14px',
-    borderRadius: 'var(--radius-sm, 6px)',
+    borderRadius: '2px',
     marginBottom: '16px',
-    fontSize: '0.9rem',
-    border: '1px solid #FECACA'
+    fontSize: '0.8rem',
+    border: '1px solid #ff0044',
+    fontFamily: 'monospace',
+    display: 'flex',
+    alignItems: 'center'
   },
   lockedMessage: {
-    backgroundColor: '#FFFBEB',
-    color: '#92400E',
+    backgroundColor: 'rgba(255, 165, 0, 0.1)',
+    color: '#ffa500',
     padding: '10px 14px',
-    borderRadius: 'var(--radius-sm, 6px)',
+    borderRadius: '2px',
     marginBottom: '16px',
-    fontSize: '0.9rem',
-    border: '1px solid #FDE68A'
+    fontSize: '0.8rem',
+    border: '1px solid #ffa500',
+    fontFamily: 'monospace',
+    display: 'flex',
+    alignItems: 'center'
   },
   actions: {
     display: 'flex',
@@ -312,39 +351,42 @@ const styles = {
     marginTop: '4px'
   },
   submitButton: {
-    backgroundColor: 'var(--primary, #4F46E5)',
-    color: 'white',
+    backgroundColor: 'rgba(0, 255, 65, 0.1)',
+    color: '#00ff41',
     padding: '12px 24px',
-    border: 'none',
-    borderRadius: 'var(--radius-sm, 6px)',
-    fontSize: '0.95rem',
-    fontWeight: '600',
+    border: '1px solid #00ff41',
+    borderRadius: '2px',
+    fontSize: '0.85rem',
+    fontWeight: '700',
     cursor: 'pointer',
     flex: 1,
-    transition: 'var(--transition, all 0.3s ease)',
+    transition: 'all 0.3s ease',
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'center',
-    minWidth: '100px'
+    minWidth: '100px',
+    fontFamily: 'monospace',
+    letterSpacing: '1px'
   },
   cancelButton: {
-    backgroundColor: 'var(--gray-100, #F3F4F6)',
-    color: 'var(--gray-600, #4B5563)',
+    backgroundColor: 'rgba(255, 255, 255, 0.05)',
+    color: '#666',
     padding: '12px 24px',
-    border: 'none',
-    borderRadius: 'var(--radius-sm, 6px)',
-    fontSize: '0.95rem',
+    border: '1px solid #333',
+    borderRadius: '2px',
+    fontSize: '0.85rem',
     fontWeight: '500',
     cursor: 'pointer',
     flex: 1,
     minWidth: '100px',
-    transition: 'var(--transition, all 0.3s ease)'
+    transition: 'all 0.3s ease',
+    fontFamily: 'monospace'
   },
   loadingSpinner: {
     width: '20px',
     height: '20px',
-    border: '2px solid rgba(255,255,255,0.3)',
-    borderTopColor: 'white',
+    border: '2px solid rgba(0, 255, 65, 0.2)',
+    borderTopColor: '#00ff41',
     borderRadius: '50%',
     animation: 'spin 0.6s linear infinite',
     display: 'inline-block'
@@ -352,17 +394,20 @@ const styles = {
   footer: {
     marginTop: '20px',
     paddingTop: '16px',
-    borderTop: '1px solid var(--gray-200, #E5E7EB)'
+    borderTop: '1px solid rgba(0, 255, 65, 0.1)'
   },
   hint: {
-    fontSize: '0.85rem',
-    color: 'var(--gray-500, #6B7280)',
+    fontSize: '0.7rem',
+    color: '#00ff41',
+    opacity: 0.4,
     margin: 0,
-    lineHeight: '1.5'
+    lineHeight: '1.5',
+    fontFamily: 'monospace'
   },
   attemptsInfo: {
-    fontWeight: '600',
-    color: 'var(--warning, #F59E0B)'
+    fontWeight: '700',
+    color: '#00ff41',
+    opacity: 0.8
   }
 };
 
