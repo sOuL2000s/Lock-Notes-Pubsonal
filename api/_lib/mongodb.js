@@ -8,6 +8,11 @@ export async function connectToDatabase() {
     return { client: cachedClient, db: cachedDb };
   }
 
+  // Add a check to make sure MONGODB_URI exists
+  if (!process.env.MONGODB_URI) {
+    throw new Error('MONGODB_URI environment variable is not defined. Please check your .env file.');
+  }
+
   const client = new MongoClient(process.env.MONGODB_URI);
   await client.connect();
   const db = client.db(process.env.MONGODB_DB);
