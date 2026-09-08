@@ -255,7 +255,7 @@ const styles = {
     transition: 'all 0.3s ease',
     flexShrink: 0,
     fontFamily: 'monospace',
-    background: 'rgba(0, 255, 65, 0.05)'
+    backgroundColor: 'rgba(0, 255, 65, 0.05)'
   },
   noteInfo: {
     backgroundColor: 'rgba(0, 255, 65, 0.05)',
