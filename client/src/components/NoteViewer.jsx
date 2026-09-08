@@ -112,173 +112,66 @@ function NoteViewer({ note, preVerifiedPassword = '', onEdit, onDelete, onBack }
     }, 30000);
   };
 
-  const renderInlineFormatting = (text) => {
-    if (!text) return text;
+  // Render markdown to HTML (same as editor preview)
+  const renderMarkdown = (text) => {
+    if (!text) return null;
     
-    const parts = [];
-    let remaining = text;
-    let lastIndex = 0;
+    let html = text
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;');
     
-    // Bold: **text**
-    const boldRegex = /\*\*(.+?)\*\*/g;
-    let match;
-    while ((match = boldRegex.exec(text)) !== null) {
-      if (match.index > lastIndex) {
-        parts.push(text.substring(lastIndex, match.index));
-      }
-      parts.push(<strong key={`bold-${match.index}`}>{match[1]}</strong>);
-      lastIndex = match.index + match[0].length;
-    }
+    // Headers
+    html = html.replace(/^### (.+)$/gm, '<h3>$1</h3>');
+    html = html.replace(/^## (.+)$/gm, '<h2>$1</h2>');
+    html = html.replace(/^# (.+)$/gm, '<h1>$1</h1>');
     
-    if (lastIndex < text.length) {
-      parts.push(text.substring(lastIndex));
-    }
+    // Bold and Italic
+    html = html.replace(/\*\*\*(.+?)\*\*\*/g, '<strong><em>$1</em></strong>');
+    html = html.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
+    html = html.replace(/\*(.+?)\*/g, '<em>$1</em>');
+    html = html.replace(/__(.+?)__/g, '<u>$1</u>');
     
-    if (parts.length === 0) return text;
-    return <>{parts}</>;
-  };
-
-  const renderContent = (content) => {
-    if (!content) return null;
+    // Task lists
+    html = html.replace(/^- \[x\] (.+)$/gm, '<div class="task-item checked"><input type="checkbox" checked disabled><span>$1</span></div>');
+    html = html.replace(/^- \[ \] (.+)$/gm, '<div class="task-item"><input type="checkbox" disabled><span>$1</span></div>');
     
-    const lines = content.split('\n');
-    const elements = [];
-    let inCodeBlock = false;
-    let codeContent = [];
-    let listItems = [];
-    let listType = null;
+    // Bullet lists
+    html = html.replace(/^[-*•] (.+)$/gm, '<li>$1</li>');
+    html = html.replace(/(<li>.*<\/li>)/s, (match) => {
+      // Avoid double wrapping
+      if (match.includes('<ul>') || match.includes('<ol>')) return match;
+      return `<ul>${match}</ul>`;
+    });
     
-    const flushList = () => {
-      if (listItems.length > 0) {
-        const ListTag = listType === 'ol' ? 'ol' : 'ul';
-        elements.push(
-          React.createElement(
-            ListTag,
-            { key: `list-${elements.length}`, style: styles.list },
-            listItems.map((item, i) => 
-              React.createElement('li', { key: `li-${i}`, style: styles.listItem }, item)
-            )
-          )
-        );
-        listItems = [];
-        listType = null;
-      }
-    };
+    // Numbered lists
+    html = html.replace(/^\d+\. (.+)$/gm, '<li>$1</li>');
+    html = html.replace(/(<li>.*<\/li>)/s, (match) => {
+      if (match.includes('<ul>') || match.includes('<ol>')) return match;
+      return `<ol>${match}</ol>`;
+    });
     
-    for (let i = 0; i < lines.length; i++) {
-      let line = lines[i];
-      
-      // Code block handling
-      if (line.startsWith('```')) {
-        if (!inCodeBlock) {
-          flushList();
-          inCodeBlock = true;
-          codeContent = [];
-          continue;
-        } else {
-          inCodeBlock = false;
-          elements.push(
-            <pre key={`code-${i}`} style={styles.codeBlock}>
-              <code>{codeContent.join('\n')}</code>
-            </pre>
-          );
-          continue;
-        }
-      }
-      
-      if (inCodeBlock) {
-        codeContent.push(line);
-        continue;
-      }
-      
-      // Headers
-      if (line.startsWith('### ')) {
-        flushList();
-        elements.push(
-          <h3 key={i} style={styles.header3}>
-            {renderInlineFormatting(line.substring(4))}
-          </h3>
-        );
-        continue;
-      }
-      if (line.startsWith('## ')) {
-        flushList();
-        elements.push(
-          <h2 key={i} style={styles.header2}>
-            {renderInlineFormatting(line.substring(3))}
-          </h2>
-        );
-        continue;
-      }
-      if (line.startsWith('# ')) {
-        flushList();
-        elements.push(
-          <h1 key={i} style={styles.header1}>
-            {renderInlineFormatting(line.substring(2))}
-          </h1>
-        );
-        continue;
-      }
-      
-      // Lists
-      if (line.match(/^-\s/)) {
-        listType = 'ul';
-        listItems.push(renderInlineFormatting(line.substring(2)));
-        continue;
-      }
-      if (line.match(/^\d+\.\s/)) {
-        listType = 'ol';
-        listItems.push(renderInlineFormatting(line.replace(/^\d+\.\s/, '')));
-        continue;
-      }
-      
-      // Blockquote
-      if (line.startsWith('> ')) {
-        flushList();
-        elements.push(
-          <blockquote key={i} style={styles.blockquote}>
-            {renderInlineFormatting(line.substring(2))}
-          </blockquote>
-        );
-        continue;
-      }
-      
-      // Images
-      const imgMatch = line.match(/<img\s+src="([^"]+)"[^>]*>/);
-      if (imgMatch) {
-        flushList();
-        elements.push(
-          <img 
-            key={i} 
-            src={imgMatch[1]} 
-            alt="Note image" 
-            style={styles.image}
-            onError={(e) => {
-              e.target.style.display = 'none';
-            }}
-          />
-        );
-        continue;
-      }
-      
-      // Empty line - flush list and add spacing
-      if (line.trim() === '') {
-        flushList();
-        elements.push(<br key={i} />);
-        continue;
-      }
-      
-      // Regular paragraph
-      flushList();
-      elements.push(
-        <p key={i} style={styles.paragraph}>
-          {renderInlineFormatting(line)}
-        </p>
-      );
-    }
+    // Code blocks
+    html = html.replace(/```([\s\S]*?)```/g, '<pre><code>$1</code></pre>');
     
-    flushList();
-    return elements;
+    // Inline code
+    html = html.replace(/`([^`]+)`/g, '<code>$1</code>');
+    
+    // Blockquotes
+    html = html.replace(/^> (.+)$/gm, '<blockquote>$1</blockquote>');
+    
+    // Images
+    html = html.replace(/<img src="([^"]+)"[^>]*>/g, (match, src) => {
+      return `<img src="${src}" alt="Note image" style="max-width:100%;border-radius:4px;margin:8px 0;display:block;" />`;
+    });
+    
+    // Links
+    html = html.replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank" rel="noopener noreferrer">$1</a>');
+    
+    // Line breaks
+    html = html.replace(/\n/g, '<br />');
+    
+    return html;
   };
 
   if (!isPasswordVerified) {
@@ -353,9 +246,11 @@ function NoteViewer({ note, preVerifiedPassword = '', onEdit, onDelete, onBack }
             <span style={styles.protected}>🔒 ENCRYPTED</span>
           </div>
 
-          <div style={styles.content}>
-            {renderContent(note.content)}
-          </div>
+          <div 
+            style={styles.content}
+            className="note-preview"
+            dangerouslySetInnerHTML={{ __html: renderMarkdown(note.content) || '<em>Empty note</em>' }}
+          />
 
           <div style={styles.actions}>
             <button 
@@ -493,70 +388,6 @@ const styles = {
     opacity: 0.8,
     fontSize: 'clamp(0.95rem, 1.5vw, 1.05rem)',
     fontFamily: 'monospace'
-  },
-  paragraph: {
-    marginBottom: '12px',
-    wordBreak: 'break-word',
-    whiteSpace: 'pre-wrap'
-  },
-  header1: {
-    marginBottom: '16px',
-    marginTop: '8px',
-    color: '#00ff41',
-    fontSize: 'clamp(1.8rem, 3vw, 2.2rem)',
-    fontWeight: '700',
-    fontFamily: 'monospace',
-    borderBottom: '1px solid rgba(0, 255, 65, 0.1)',
-    paddingBottom: '8px'
-  },
-  header2: {
-    marginBottom: '12px',
-    marginTop: '8px',
-    color: '#00ff41',
-    fontSize: 'clamp(1.4rem, 2.5vw, 1.8rem)',
-    fontWeight: '600',
-    fontFamily: 'monospace'
-  },
-  header3: {
-    marginBottom: '10px',
-    marginTop: '6px',
-    color: '#00ff41',
-    fontSize: 'clamp(1.1rem, 2vw, 1.4rem)',
-    fontWeight: '600',
-    fontFamily: 'monospace'
-  },
-  list: {
-    marginBottom: '12px',
-    paddingLeft: '24px',
-    color: '#00ff41',
-    fontFamily: 'monospace'
-  },
-  listItem: {
-    marginBottom: '4px'
-  },
-  blockquote: {
-    borderLeft: '3px solid #00ff41',
-    paddingLeft: '16px',
-    margin: '12px 0',
-    opacity: 0.7,
-    fontStyle: 'italic',
-    fontFamily: 'monospace'
-  },
-  codeBlock: {
-    backgroundColor: 'rgba(0, 0, 0, 0.5)',
-    border: '1px solid rgba(0, 255, 65, 0.1)',
-    borderRadius: '4px',
-    padding: '12px 16px',
-    margin: '12px 0',
-    overflow: 'auto',
-    fontFamily: 'monospace',
-    color: '#00ff41'
-  },
-  image: {
-    maxWidth: '100%',
-    borderRadius: '4px',
-    margin: '12px 0',
-    border: '1px solid rgba(0, 255, 65, 0.1)'
   },
   actions: {
     display: 'flex',
