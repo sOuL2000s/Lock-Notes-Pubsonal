@@ -53,6 +53,7 @@ function PasswordModal({
         }
         setTimeout(() => {
           setRemainingAttempts(maxAttempts);
+          setError('');
         }, 30000);
       } else {
         const errorMessage = err.response?.data?.error || 'INVALID CREDENTIALS';

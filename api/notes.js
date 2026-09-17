@@ -46,6 +46,16 @@ export default async function handler(req, res) {
           return;
         }
 
+        if (typeof title !== 'string' || title.length > 100) {
+          res.status(400).json({ error: 'Title must be 100 characters or fewer' });
+          return;
+        }
+
+        if (typeof content !== 'string' || content.length > 100000) {
+          res.status(400).json({ error: 'Content is too large (max 100,000 characters)' });
+          return;
+        }
+
         // --- PASSWORD IS NOW MANDATORY ---
         if (!password || password.trim() === '') {
           res.status(400).json({ error: 'Password is required to create a note' });

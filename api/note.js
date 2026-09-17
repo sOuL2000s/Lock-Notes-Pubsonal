@@ -7,7 +7,7 @@ export default async function handler(req, res) {
   // Set CORS headers
   if (typeof res.setHeader === 'function') {
     res.setHeader('Access-Control-Allow-Origin', '*');
-    res.setHeader('Access-Control-Allow-Methods', 'GET, PUT, DELETE, OPTIONS');
+    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
     res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
   }
 
@@ -59,6 +59,32 @@ export default async function handler(req, res) {
       return;
     }
 
+    // POST verify password (no mutation)
+    if (req.method === 'POST') {
+      try {
+        const { password } = req.body || {};
+        if (!password) {
+          res.status(401).json({ error: 'Password required' });
+          return;
+        }
+        const note = await notesCollection.findOne({ _id: new ObjectId(id) });
+        if (!note) {
+          res.status(404).json({ error: 'Note not found' });
+          return;
+        }
+        const isValid = await bcrypt.compare(password, note.password);
+        if (!isValid) {
+          res.status(401).json({ error: 'Invalid password' });
+          return;
+        }
+        res.status(200).json({ valid: true });
+      } catch (error) {
+        console.error('POST verify error:', error);
+        res.status(500).json({ error: 'Failed to verify password' });
+      }
+      return;
+    }
+
     // PUT update note
     if (req.method === 'PUT') {
       try {
@@ -66,6 +92,16 @@ export default async function handler(req, res) {
 
         if (!title || !content) {
           res.status(400).json({ error: 'Title and content are required' });
+          return;
+        }
+
+        if (typeof title !== 'string' || title.length > 100) {
+          res.status(400).json({ error: 'Title must be 100 characters or fewer' });
+          return;
+        }
+
+        if (typeof content !== 'string' || content.length > 100000) {
+          res.status(400).json({ error: 'Content is too large (max 100,000 characters)' });
           return;
         }
 

@@ -4,7 +4,7 @@ import NoteList from './components/NoteList';
 import NoteEditor from './components/NoteEditor';
 import NoteViewer from './components/NoteViewer';
 import { api } from './services/api';
-import { Terminal, Plus, AlertTriangle } from 'lucide-react';
+import { Terminal, Plus, AlertTriangle, Search } from 'lucide-react';
 
 function App() {
   const [notes, setNotes] = useState([]);
@@ -14,6 +14,8 @@ function App() {
   const [error, setError] = useState(null);
   // Add state for pre-verified password
   const [preVerifiedPassword, setPreVerifiedPassword] = useState('');
+  // Search query for filtering notes
+  const [searchQuery, setSearchQuery] = useState('');
 
   useEffect(() => {
     loadNotes();
@@ -36,7 +38,7 @@ function App() {
   const handleCreateNote = async (noteData) => {
     try {
       const newNote = await api.createNote(noteData);
-      setNotes([newNote, ...notes]);
+      setNotes(prev => [newNote, ...prev]);
       setViewMode('list');
       setCurrentNote(null);
       setPreVerifiedPassword('');
@@ -49,7 +51,7 @@ function App() {
   const handleUpdateNote = async (id, noteData) => {
     try {
       const updatedNote = await api.updateNote(id, noteData);
-      setNotes(notes.map(n => n._id === id ? updatedNote : n));
+      setNotes(prev => prev.map(n => n._id === id ? updatedNote : n));
       setViewMode('list');
       setCurrentNote(null);
       setPreVerifiedPassword('');
@@ -62,7 +64,7 @@ function App() {
   const handleDeleteNote = async (id, password) => {
     try {
       await api.deleteNote(id, password);
-      setNotes(notes.filter(n => n._id !== id));
+      setNotes(prev => prev.filter(n => n._id !== id));
       if (currentNote?._id === id) {
         setCurrentNote(null);
         setViewMode('list');
@@ -86,8 +88,9 @@ function App() {
     }
   };
 
-  const handleEditNote = (note) => {
+  const handleEditNote = (note, verifiedPassword = '') => {
     setCurrentNote(note);
+    setPreVerifiedPassword(verifiedPassword);
     setViewMode('edit');
   };
 
@@ -97,6 +100,17 @@ function App() {
     setError(null);
     setPreVerifiedPassword('');
   };
+
+  // Filter notes by search query (title + content, case-insensitive)
+  const filteredNotes = searchQuery.trim()
+    ? notes.filter(note => {
+        const q = searchQuery.trim().toLowerCase();
+        return (
+          (note.title || '').toLowerCase().includes(q) ||
+          (note.content || '').toLowerCase().includes(q)
+        );
+      })
+    : notes;
 
   if (loading) {
     return (
@@ -131,6 +145,7 @@ function App() {
         <>
           <button 
             onClick={() => {
+              localStorage.removeItem('note_draft');
               setCurrentNote(null);
               setViewMode('create');
               setPreVerifiedPassword('');
@@ -140,8 +155,35 @@ function App() {
             <Plus size={18} style={styles.createIcon} />
             CREATE_NOTE
           </button>
+
+          {notes.length > 0 && (
+            <div style={styles.searchWrapper}>
+              <Search size={16} style={styles.searchIcon} />
+              <input
+                type="text"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                placeholder="SEARCH_NOTES..."
+                style={styles.searchInput}
+                aria-label="Search notes"
+              />
+              {searchQuery && (
+                <button
+                  type="button"
+                  onClick={() => setSearchQuery('')}
+                  style={styles.searchClear}
+                  aria-label="Clear search"
+                >
+                  ✕
+                </button>
+              )}
+            </div>
+          )}
+
           <NoteList 
-            notes={notes} 
+            notes={filteredNotes} 
+            totalCount={notes.length}
+            searchQuery={searchQuery}
             onViewNote={handleViewNote}
             onEditNote={handleEditNote}
             onDeleteNote={handleDeleteNote}
@@ -152,6 +194,7 @@ function App() {
       {(viewMode === 'create' || viewMode === 'edit') && (
         <NoteEditor
           note={viewMode === 'edit' ? currentNote : null}
+          preVerifiedPassword={preVerifiedPassword}
           onSave={viewMode === 'edit' ? handleUpdateNote : handleCreateNote}
           onCancel={handleBackToList}
         />
@@ -230,6 +273,47 @@ const styles = {
   },
   createIcon: {
     fontSize: '1.2rem'
+  },
+  searchWrapper: {
+    position: 'relative',
+    width: '100%',
+    maxWidth: '480px',
+    margin: '0 auto 24px auto',
+    display: 'flex',
+    alignItems: 'center'
+  },
+  searchIcon: {
+    position: 'absolute',
+    left: '14px',
+    color: '#00ff41',
+    opacity: 0.5,
+    pointerEvents: 'none'
+  },
+  searchInput: {
+    width: '100%',
+    padding: '12px 40px 12px 40px',
+    backgroundColor: 'rgba(0, 255, 65, 0.03)',
+    border: '1px solid rgba(0, 255, 65, 0.2)',
+    borderRadius: '2px',
+    color: '#00ff41',
+    fontSize: 'clamp(0.8rem, 1.5vw, 0.9rem)',
+    fontFamily: 'monospace',
+    letterSpacing: '1px',
+    outline: 'none',
+    transition: 'all 0.3s ease'
+  },
+  searchClear: {
+    position: 'absolute',
+    right: '10px',
+    background: 'none',
+    border: '1px solid rgba(0, 255, 65, 0.2)',
+    color: '#00ff41',
+    cursor: 'pointer',
+    padding: '2px 8px',
+    borderRadius: '2px',
+    fontFamily: 'monospace',
+    fontSize: '0.8rem',
+    opacity: 0.7
   },
   loadingContainer: {
     display: 'flex',

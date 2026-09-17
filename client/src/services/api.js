@@ -31,8 +31,13 @@ apiClient.interceptors.response.use(
   async error => {
     const config = error.config;
     
-    // Retry logic for network errors
-    if (!config._retry && (error.code === 'ECONNABORTED' || !error.response)) {
+    // Retry logic for network errors — GET only, to avoid duplicate writes
+    const method = (config?.method || 'get').toLowerCase();
+    if (
+      method === 'get' &&
+      !config._retry &&
+      (error.code === 'ECONNABORTED' || !error.response)
+    ) {
       config._retry = true;
       config._retryCount = (config._retryCount || 0) + 1;
       
@@ -115,20 +120,7 @@ export const api = {
     if (!password) throw new Error('PASSWORD_REQUIRED');
     
     try {
-      // First, try to get the note to check if it has a password
-      const note = await api.getNote(id);
-      
-      // If note doesn't have a password, return true
-      if (!note.password || note.password === null || note.password === '') {
-        return true;
-      }
-      
-      // Try to update with the password - this will fail if password is wrong
-      await apiClient.put(`/note?id=${id}`, {
-        title: note.title,
-        content: note.content,
-        currentPassword: password
-      });
+      await apiClient.post(`/note?id=${id}`, { password });
       return true;
     } catch (error) {
       if (error.response?.status === 401) {

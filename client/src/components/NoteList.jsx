@@ -1,9 +1,10 @@
 // client/src/components/NoteList.jsx
 import React, { useState } from 'react';
 import PasswordModal from './PasswordModal';
+import { api } from '../services/api';
 import { Eye, Edit, Trash2, Lock, Calendar } from 'lucide-react';
 
-function NoteList({ notes, onViewNote, onEditNote, onDeleteNote }) {
+function NoteList({ notes, totalCount = 0, searchQuery = '', onViewNote, onEditNote, onDeleteNote }) {
   const [passwordModal, setPasswordModal] = useState({
     isOpen: false,
     noteId: null,
@@ -43,8 +44,10 @@ function NoteList({ notes, onViewNote, onEditNote, onDeleteNote }) {
       if (action === 'view') {
         await onViewNote(noteId, password);
       } else if (action === 'edit') {
+        // Verify password before entering edit mode
+        await api.verifyPassword(noteId, password);
         const note = notes.find(n => n._id === noteId);
-        await onEditNote(note);
+        await onEditNote(note, password);
       } else if (action === 'delete') {
         await onDeleteNote(noteId, password);
       }
@@ -77,11 +80,21 @@ function NoteList({ notes, onViewNote, onEditNote, onDeleteNote }) {
     <>
       <div style={styles.container}>
         {notes.length === 0 ? (
-          <div style={styles.emptyState}>
-            <div style={styles.emptyIcon}>📡</div>
-            <h3 style={styles.emptyTitle}>// NO_NOTES_FOUND</h3>
-            <p style={styles.emptyText}>[ INITIALIZE_NEW_NOTE_TO_BEGIN ]</p>
-          </div>
+          searchQuery.trim() && totalCount > 0 ? (
+            <div style={styles.emptyState}>
+              <div style={styles.emptyIcon}>🔍</div>
+              <h3 style={styles.emptyTitle}>// NO_MATCHES_FOUND</h3>
+              <p style={styles.emptyText}>
+                [ NO_NOTES_MATCH "{searchQuery.trim()}" ]
+              </p>
+            </div>
+          ) : (
+            <div style={styles.emptyState}>
+              <div style={styles.emptyIcon}>📡</div>
+              <h3 style={styles.emptyTitle}>// NO_NOTES_FOUND</h3>
+              <p style={styles.emptyText}>[ INITIALIZE_NEW_NOTE_TO_BEGIN ]</p>
+            </div>
+          )
         ) : (
           <div style={styles.grid}>
             {notes.map((note) => {

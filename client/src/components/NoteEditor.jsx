@@ -6,7 +6,7 @@ import {
   Upload, X, AlignLeft, AlignCenter, AlignRight, CheckSquare
 } from 'lucide-react';
 
-function NoteEditor({ note, onSave, onCancel }) {
+function NoteEditor({ note, preVerifiedPassword = '', onSave, onCancel }) {
   const [title, setTitle] = useState('');
   const [content, setContent] = useState('');
   const [password, setPassword] = useState('');
@@ -25,20 +25,27 @@ function NoteEditor({ note, onSave, onCancel }) {
   const editorRef = useRef(null);
 
   useEffect(() => {
+    setIsPreviewMode(false);
     if (note) {
       setTitle(note.title || '');
       setContent(note.content || '');
+      setPassword('');
+      setCurrentPassword(preVerifiedPassword || '');
+      setPasswordValidation({ isValid: false, message: '' });
     } else {
       setTitle('');
       setContent('');
       setPassword('');
       setCurrentPassword('');
       setPasswordValidation({ isValid: false, message: '' });
+      // Clear any leftover draft when creating a new note
+      localStorage.removeItem('note_draft');
     }
-  }, [note]);
+  }, [note, preVerifiedPassword]);
 
-  // Auto-save draft (optional)
+  // Auto-save draft — only when creating a new note (not editing)
   useEffect(() => {
+    if (note) return;
     const saveDraft = () => {
       if (title || content) {
         localStorage.setItem('note_draft', JSON.stringify({ title, content, timestamp: Date.now() }));
@@ -46,9 +53,9 @@ function NoteEditor({ note, onSave, onCancel }) {
     };
     const interval = setInterval(saveDraft, 5000);
     return () => clearInterval(interval);
-  }, [title, content]);
+  }, [title, content, note]);
 
-  // Load draft on mount
+  // Load draft on mount only (not when switching between notes)
   useEffect(() => {
     const draft = localStorage.getItem('note_draft');
     if (draft && !note) {
@@ -60,7 +67,8 @@ function NoteEditor({ note, onSave, onCancel }) {
         }
       } catch (e) {}
     }
-  }, [note]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const validatePassword = (pwd) => {
     if (!pwd || pwd.length < 6) {
@@ -499,8 +507,11 @@ function NoteEditor({ note, onSave, onCancel }) {
       return `<img src="${src}" alt="Note image" style="max-width:100%;border-radius:4px;margin:8px 0;display:block;" />`;
     });
     
-    // Links
-    html = html.replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank" rel="noopener noreferrer">$1</a>');
+    // Links — only allow http(s) and mailto
+    html = html.replace(/\[([^\]]+)\]\(([^)]+)\)/g, (match, text, url) => {
+      const safe = /^(https?:|mailto:)/i.test(url.trim()) ? url.trim() : '#';
+      return `<a href="${safe}" target="_blank" rel="noopener noreferrer">${text}</a>`;
+    });
     
     // Line breaks
     html = html.replace(/\n/g, '<br />');

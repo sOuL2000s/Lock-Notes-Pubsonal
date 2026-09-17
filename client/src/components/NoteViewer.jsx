@@ -28,6 +28,7 @@ function NoteViewer({ note, preVerifiedPassword = '', onEdit, onDelete, onBack }
   }, [note?._id, preVerifiedPassword]);
 
   const handleAutoVerify = async (password) => {
+    if (!note?._id) return;
     try {
       await api.verifyPassword(note._id, password);
       setIsPasswordVerified(true);
@@ -35,6 +36,7 @@ function NoteViewer({ note, preVerifiedPassword = '', onEdit, onDelete, onBack }
       setAttempts(0);
     } catch (error) {
       setIsPasswordVerified(false);
+      setViewPassword('');
       setShowPasswordModal(true);
     }
   };
@@ -81,7 +83,8 @@ function NoteViewer({ note, preVerifiedPassword = '', onEdit, onDelete, onBack }
       setPasswordAction('edit');
       setShowPasswordModal(true);
     } else {
-      onEdit(note);
+      // Pass the verified password along so the editor can reuse it
+      onEdit(note, viewPassword);
     }
   };
 
@@ -165,8 +168,11 @@ function NoteViewer({ note, preVerifiedPassword = '', onEdit, onDelete, onBack }
       return `<img src="${src}" alt="Note image" style="max-width:100%;border-radius:4px;margin:8px 0;display:block;" />`;
     });
     
-    // Links
-    html = html.replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank" rel="noopener noreferrer">$1</a>');
+    // Links — only allow http(s) and mailto
+    html = html.replace(/\[([^\]]+)\]\(([^)]+)\)/g, (match, text, url) => {
+      const safe = /^(https?:|mailto:)/i.test(url.trim()) ? url.trim() : '#';
+      return `<a href="${safe}" target="_blank" rel="noopener noreferrer">${text}</a>`;
+    });
     
     // Line breaks
     html = html.replace(/\n/g, '<br />');
