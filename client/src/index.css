@@ -26,7 +26,7 @@ body {
   min-height: 100vh;
   padding: 20px;
   color: #00ff41;
-  background-image: 
+  background-image:
     linear-gradient(rgba(0, 255, 65, 0.02) 1px, transparent 1px),
     linear-gradient(90deg, rgba(0, 255, 65, 0.02) 1px, transparent 1px);
   background-size: 20px 20px;
@@ -37,86 +37,40 @@ body {
   margin: 0 auto;
 }
 
-/* Scrollbar Styling */
-::-webkit-scrollbar {
-  width: 8px;
-  height: 8px;
-}
-
-::-webkit-scrollbar-track {
-  background: rgba(0, 0, 0, 0.5);
-  border-radius: 2px;
-}
-
-::-webkit-scrollbar-thumb {
-  background: rgba(0, 255, 65, 0.3);
-  border-radius: 2px;
-}
-
-::-webkit-scrollbar-thumb:hover {
-  background: rgba(0, 255, 65, 0.5);
-}
+/* Scrollbar */
+::-webkit-scrollbar { width: 8px; height: 8px; }
+::-webkit-scrollbar-track { background: rgba(0, 0, 0, 0.5); border-radius: 2px; }
+::-webkit-scrollbar-thumb { background: rgba(0, 255, 65, 0.3); border-radius: 2px; }
+::-webkit-scrollbar-thumb:hover { background: rgba(0, 255, 65, 0.5); }
 
 /* Animations */
 @keyframes fadeIn {
   from { opacity: 0; transform: translateY(10px); }
   to { opacity: 1; transform: translateY(0); }
 }
-
 @keyframes slideUp {
   from { opacity: 0; transform: translateY(20px); }
   to { opacity: 1; transform: translateY(0); }
 }
-
 @keyframes slideDown {
   from { opacity: 0; transform: translateY(-20px); }
   to { opacity: 1; transform: translateY(0); }
 }
-
-@keyframes spin {
-  to { transform: rotate(360deg); }
-}
-
-@keyframes glitchLine {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0.3; }
-}
-
-@keyframes pulse {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0.5; }
-}
-
+@keyframes spin { to { transform: rotate(360deg); } }
+@keyframes glitchLine { 0%, 100% { opacity: 1; } 50% { opacity: 0.3; } }
+@keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.5; } }
 @keyframes scanline {
   0% { transform: translateY(-100%); }
   100% { transform: translateY(100%); }
 }
 
-.fade-in {
-  animation: fadeIn 0.3s ease forwards;
-}
+.fade-in { animation: fadeIn 0.3s ease forwards; }
+.slide-in { animation: slideUp 0.3s ease forwards; }
 
-.slide-in {
-  animation: slideUp 0.3s ease forwards;
-}
+button { position: relative; overflow: hidden; transition: all 0.3s ease; }
+button:hover:not(:disabled) { transform: translateY(-2px); box-shadow: 0 0 30px rgba(0, 255, 65, 0.1); }
+button:active:not(:disabled) { transform: translateY(0); }
 
-/* Button Hover Effects */
-button {
-  position: relative;
-  overflow: hidden;
-  transition: all 0.3s ease;
-}
-
-button:hover:not(:disabled) {
-  transform: translateY(-2px);
-  box-shadow: 0 0 30px rgba(0, 255, 65, 0.1);
-}
-
-button:active:not(:disabled) {
-  transform: translateY(0);
-}
-
-/* Focus Styles for Accessibility */
 button:focus-visible,
 input:focus-visible,
 textarea:focus-visible {
@@ -124,11 +78,7 @@ textarea:focus-visible {
   outline-offset: 2px;
 }
 
-/* Glitch effect for headers */
-.glitch {
-  animation: glitch 3s infinite;
-}
-
+.glitch { animation: glitch 3s infinite; }
 @keyframes glitch {
   0%, 100% { transform: translate(0); }
   20% { transform: translate(-2px, 2px); }
@@ -137,18 +87,11 @@ textarea:focus-visible {
   80% { transform: translate(1px, -1px); }
 }
 
-/* Scanline effect */
-.scanline {
-  position: relative;
-  overflow: hidden;
-}
-
+.scanline { position: relative; overflow: hidden; }
 .scanline::after {
   content: '';
   position: absolute;
-  top: 0;
-  left: 0;
-  right: 0;
+  top: 0; left: 0; right: 0;
   height: 100%;
   background: linear-gradient(to bottom, transparent 50%, rgba(0, 255, 65, 0.01) 50%);
   background-size: 100% 4px;
@@ -156,25 +99,18 @@ textarea:focus-visible {
   animation: scanline 8s linear infinite;
 }
 
-/* Mobile Responsive */
-@media (max-width: 768px) {
-  body {
-    padding: 12px;
-  }
-}
+@media (max-width: 768px) { body { padding: 12px; } }
+@media (max-width: 480px) { body { padding: 8px; } }
 
-@media (max-width: 480px) {
-  body {
-    padding: 8px;
-  }
-}
+/* ============================================ */
+/* Note preview typography (shared by editor   */
+/* preview + viewer)                            */
+/* ============================================ */
 
-/* client/src/index.css - Add these styles at the end */
-
-/* Note Preview Styles */
 .note-preview {
   font-family: 'Courier New', monospace;
   line-height: 1.8;
+  word-break: break-word;
 }
 
 .note-preview h1 {
@@ -184,70 +120,48 @@ textarea:focus-visible {
   padding-bottom: 0.25rem;
 }
 
-.note-preview h2 {
-  font-size: 1.5rem;
-  margin: 0.5rem 0;
-}
-
-.note-preview h3 {
-  font-size: 1.2rem;
-  margin: 0.5rem 0;
-}
+.note-preview h2 { font-size: 1.5rem; margin: 0.5rem 0; }
+.note-preview h3 { font-size: 1.2rem; margin: 0.5rem 0; }
 
 .note-preview ul,
 .note-preview ol {
-  padding-left: 24px;
+  padding-left: 28px;
   margin: 8px 0;
 }
 
-.note-preview li {
-  margin-bottom: 4px;
-}
+.note-preview li { margin-bottom: 4px; }
 
 .note-preview blockquote {
   border-left: 3px solid #00ff41;
   padding-left: 16px;
-  opacity: 0.7;
+  opacity: 0.75;
   margin: 8px 0;
 }
 
 .note-preview pre {
-  background-color: rgba(0, 0, 0, 0.5);
+  background-color: rgba(0, 0, 0, 0.6);
   padding: 12px 16px;
   border-radius: 4px;
   overflow: auto;
   border: 1px solid rgba(0, 255, 65, 0.1);
+  margin: 8px 0;
 }
 
 .note-preview code {
-  background-color: rgba(0, 0, 0, 0.3);
+  background-color: rgba(0, 0, 0, 0.4);
   padding: 2px 6px;
   border-radius: 2px;
   font-size: 0.9em;
 }
 
+.note-preview pre code {
+  background: none;
+  padding: 0;
+}
+
 .note-preview a {
   color: #00ff41;
   text-decoration: underline;
-}
-
-.note-preview .task-item {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  margin-bottom: 4px;
-}
-
-.note-preview .task-item input[type="checkbox"] {
-  accent-color: #00ff41;
-  width: 16px;
-  height: 16px;
-  cursor: default;
-}
-
-.note-preview .task-item.checked span {
-  opacity: 0.5;
-  text-decoration: line-through;
 }
 
 .note-preview img {
@@ -258,20 +172,239 @@ textarea:focus-visible {
   border: 1px solid rgba(0, 255, 65, 0.1);
 }
 
-/* Toolbar button hover */
+/* ============================================ */
+/* Interactive task checkboxes                  */
+/* ============================================ */
+
+.note-preview .task-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  margin: 4px 0;
+  padding: 2px 0;
+  line-height: 1.7;
+}
+
+.note-preview .task-item input[type="checkbox"] {
+  appearance: none;
+  -webkit-appearance: none;
+  width: 18px;
+  height: 18px;
+  margin-top: 4px;
+  border: 1.5px solid #00ff41;
+  border-radius: 3px;
+  background: rgba(0, 255, 65, 0.03);
+  cursor: pointer;
+  flex-shrink: 0;
+  position: relative;
+  transition: all 0.15s ease;
+}
+
+.note-preview .task-item input[type="checkbox"]:not(:disabled):hover {
+  background: rgba(0, 255, 65, 0.12);
+  box-shadow: 0 0 8px rgba(0, 255, 65, 0.3);
+}
+
+.note-preview .task-item input[type="checkbox"]:checked {
+  background: #00ff41;
+  border-color: #00ff41;
+}
+
+.note-preview .task-item input[type="checkbox"]:checked::after {
+  content: '✓';
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  color: #0a0a0a;
+  font-size: 13px;
+  font-weight: 900;
+  line-height: 1;
+  font-family: monospace;
+}
+
+.note-preview .task-item input[type="checkbox"]:disabled {
+  cursor: default;
+  opacity: 0.9;
+}
+
+.note-preview .task-item.checked span {
+  opacity: 0.5;
+  text-decoration: line-through;
+}
+
+/* ============================================ */
+/* Misc                                         */
+/* ============================================ */
+
 .toolbar-button:hover {
   background: rgba(0, 255, 65, 0.1);
   border-color: #00ff41;
 }
 
-/* Editor focus states */
 .editor-textarea:focus,
 .editor-input:focus {
   border-color: #00ff41;
   box-shadow: 0 0 20px rgba(0, 255, 65, 0.05);
 }
 
-/* Password strength indicator animation */
 .password-strength-bar {
   transition: width 0.3s ease, background-color 0.3s ease;
+}
+
+/* ============================================ */
+/* Code block theming + syntax highlighting     */
+/* ============================================ */
+
+.note-preview pre {
+  position: relative;
+  background: linear-gradient(180deg, rgba(0, 20, 8, 0.9) 0%, rgba(0, 10, 4, 0.95) 100%);
+  border: 1px solid rgba(0, 255, 65, 0.25);
+  border-left: 3px solid #00ff41;
+  border-radius: 3px;
+  padding: 14px 18px;
+  margin: 12px 0;
+  overflow: auto;
+  box-shadow:
+    inset 0 0 30px rgba(0, 255, 65, 0.04),
+    0 0 12px rgba(0, 255, 65, 0.06);
+  font-family: 'Courier New', monospace;
+  font-size: 0.88em;
+  line-height: 1.7;
+}
+
+.note-preview pre::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, rgba(0, 255, 65, 0.35), transparent);
+  pointer-events: none;
+}
+
+.note-preview pre code {
+  background: none;
+  padding: 0;
+  border: none;
+  color: #cfe9d6;
+  font-family: inherit;
+  display: block;
+  white-space: pre;
+}
+
+.note-preview pre code[class*="language-"]::before {
+  content: attr(class);
+  display: none;
+}
+
+/* Inline code (outside <pre>) */
+.note-preview :not(pre) > code {
+  background: rgba(0, 255, 65, 0.08);
+  border: 1px solid rgba(0, 255, 65, 0.18);
+  padding: 1px 6px;
+  border-radius: 3px;
+  color: #7dffa0;
+  font-size: 0.92em;
+}
+
+/* ---- Token palette ---- */
+
+.note-preview .tok-key {
+  color: #00ff41;
+  font-weight: 700;
+}
+
+.note-preview .tok-str {
+  color: #ffa500;
+}
+
+.note-preview .tok-num {
+  color: #00e5ff;
+}
+
+.note-preview .tok-com {
+  color: #2b7d47;
+  font-style: italic;
+}
+
+.note-preview .tok-fn {
+  color: #7dffa0;
+}
+
+.note-preview .tok-tag {
+  color: #00ff41;
+  font-weight: 700;
+}
+
+.note-preview .tok-attr {
+  color: #ffa500;
+}
+
+.note-preview .tok-prop {
+  color: #7dffa0;
+}
+
+.note-preview .tok-val {
+  color: #ffa500;
+}
+
+.note-preview .tok-sel {
+  color: #00ff41;
+  font-weight: 600;
+}
+
+.note-preview .tok-var {
+  color: #00e5ff;
+}
+
+/* A subtle line-gutter on the left of code blocks */
+.note-preview pre code {
+  padding-left: 6px;
+  border-left: 1px solid rgba(0, 255, 65, 0.1);
+}
+
+/* ============================================ */
+/* Markdown tables                              */
+/* ============================================ */
+
+.note-preview table.md-table {
+  border-collapse: collapse;
+  width: 100%;
+  margin: 12px 0;
+  font-family: 'Courier New', monospace;
+  font-size: 0.92em;
+  border: 1px solid rgba(0, 255, 65, 0.2);
+}
+
+.note-preview table.md-table th,
+.note-preview table.md-table td {
+  border: 1px solid rgba(0, 255, 65, 0.12);
+  padding: 8px 12px;
+  color: #cfe9d6;
+}
+
+.note-preview table.md-table th {
+  background: rgba(0, 255, 65, 0.06);
+  color: #00ff41;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  font-size: 0.85em;
+}
+
+.note-preview table.md-table tr:nth-child(even) td {
+  background: rgba(0, 255, 65, 0.015);
+}
+
+/* ============================================ */
+/* Horizontal rule                              */
+/* ============================================ */
+
+.note-preview hr {
+  border: none;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, rgba(0, 255, 65, 0.4), transparent);
+  margin: 20px 0;
 }
