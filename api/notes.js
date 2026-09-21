@@ -2,8 +2,10 @@
 import { connectToDatabase } from './_lib/mongodb.js';
 import bcrypt from 'bcryptjs';
 
+const DEFAULT_LIMIT = 20;
+const MAX_LIMIT = 100;
+
 export default async function handler(req, res) {
-  // Set CORS headers - using the wrapper's setHeader
   if (typeof res.setHeader === 'function') {
     res.setHeader('Access-Control-Allow-Origin', '*');
     res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
@@ -19,16 +21,91 @@ export default async function handler(req, res) {
     const { db } = await connectToDatabase();
     const notesCollection = db.collection('notes');
 
-    // GET all notes (public)
+    // ----- GET /api/notes -----
+    // Query params:
+    //   q      : text search (title + content)
+    //   sort   : 'recent' (default) | 'oldest' | 'title' | 'title_desc' | 'updated'
+    //   limit  : 1..100 (default 20)
+    //   cursor : ISO date string (createdAt or updatedAt depending on sort)
+    // Response: { notes, nextCursor, total }
     if (req.method === 'GET') {
       try {
-        const notes = await notesCollection
-          .find({})
-          .project({ password: 0 })
-          .sort({ createdAt: -1 })
+        const { q, sort = 'recent', limit: limitRaw, cursor } = req.query || {};
+        const limit = Math.min(Math.max(parseInt(limitRaw, 10) || DEFAULT_LIMIT, 1), MAX_LIMIT);
+
+        const filter = {};
+        if (q && q.trim()) {
+          filter.$text = { $search: q.trim() };
+        }
+
+        // Sort strategy + cursor field
+        let sortSpec;
+        let cursorField;
+        switch (sort) {
+          case 'oldest':
+            sortSpec = { createdAt: 1 };
+            cursorField = 'createdAt';
+            break;
+          case 'title':
+            sortSpec = { title: 1 };
+            cursorField = 'title';
+            break;
+          case 'title_desc':
+            sortSpec = { title: -1 };
+            cursorField = 'title';
+            break;
+          case 'updated':
+            sortSpec = { updatedAt: -1 };
+            cursorField = 'updatedAt';
+            break;
+          case 'recent':
+          default:
+            sortSpec = { createdAt: -1 };
+            cursorField = 'createdAt';
+        }
+
+        if (cursor) {
+          const cursorVal = (cursorField === 'createdAt' || cursorField === 'updatedAt')
+            ? new Date(cursor)
+            : cursor;
+          const op = (sort === 'oldest' || sort === 'title') ? '$gt' : '$lt';
+          filter[cursorField] = { [op]: cursorVal };
+        }
+
+        // Exclude content from list payload — only fetch on view
+        const projection = {
+          password: 0,
+          content: 0,
+          shareToken: 0,
+        };
+
+        const total = await notesCollection.countDocuments(
+          q && q.trim() ? { $text: { $search: q.trim() } } : {}
+        );
+
+        const docs = await notesCollection
+          .find(filter, { projection })
+          .sort(sortSpec)
+          .limit(limit + 1) // +1 to detect "has more"
           .toArray();
-        
-        res.status(200).json({ notes });
+
+        const hasMore = docs.length > limit;
+        const page = hasMore ? docs.slice(0, limit) : docs;
+
+        // Attach content length for the list preview (compute cheaply)
+        // We don't have content (projection excludes it), so client shows
+        // a small placeholder. To keep the existing UI working, we add a
+        // separate lightweight aggregation only if explicitly requested.
+        // For now, we simply omit and let the UI adapt.
+
+        let nextCursor = null;
+        if (hasMore && page.length > 0) {
+          const last = page[page.length - 1];
+          const val = last[cursorField];
+          nextCursor = val instanceof Date ? val.toISOString() : val;
+        }
+
+        res.status(200).json({ notes: page, nextCursor, total, hasMore });
       } catch (error) {
         console.error('GET error:', error);
         res.status(500).json({ error: 'Failed to fetch notes' });
@@ -36,7 +113,7 @@ export default async function handler(req, res) {
       return;
     }
 
-    // POST create a new note
+    // ----- POST /api/notes -----
     if (req.method === 'POST') {
       try {
         const { title, content, password } = req.body;
@@ -56,43 +133,39 @@ export default async function handler(req, res) {
           return;
         }
 
-        // --- PASSWORD IS NOW MANDATORY ---
         if (!password || password.trim() === '') {
           res.status(400).json({ error: 'Password is required to create a note' });
           return;
         }
 
-        // Password strength validation (minimum 6 characters)
         if (password.length < 6) {
           res.status(400).json({ error: 'Password must be at least 6 characters long' });
           return;
         }
 
-        // Check if note name already exists
         const existingNote = await notesCollection.findOne({ title });
         if (existingNote) {
           res.status(400).json({ error: 'A note with this name already exists' });
           return;
         }
 
-        // Hash password
         const hashedPassword = await bcrypt.hash(password, 10);
 
         const note = {
           title,
           content,
           password: hashedPassword,
+          version: 1,
           createdAt: new Date(),
-          updatedAt: new Date()
+          updatedAt: new Date(),
         };
 
         const result = await notesCollection.insertOne(note);
-        
-        // Return note without password
+
         const { password: _, ...noteWithoutPassword } = note;
-        res.status(201).json({ 
-          ...noteWithoutPassword, 
-          _id: result.insertedId 
+        res.status(201).json({
+          ...noteWithoutPassword,
+          _id: result.insertedId,
         });
       } catch (error) {
         console.error('POST error:', error);

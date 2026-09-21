@@ -1,9 +1,11 @@
 {
   "version": 2,
   "routes": [
-    {
-      "src": "/api/(.*)",
-      "dest": "/api/$1"
-    }
+    { "src": "/api/note/versions", "dest": "/api/note/versions.js" },
+    { "src": "/api/note/restore", "dest": "/api/note/restore.js" },
+    { "src": "/api/note/share", "dest": "/api/note/share.js" },
+    { "src": "/api/share", "dest": "/api/share.js" },
+    { "src": "/api/(.*)", "dest": "/api/$1" },
+    { "src": "/s/(.*)", "dest": "/index.html" }
   ]
 }

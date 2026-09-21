@@ -1,34 +1,129 @@
 /* client/src/index.css */
-:root {
-  --primary: #00ff41;
-  --primary-dark: #00cc33;
-  --primary-light: #33ff66;
+
+/* ============================================================ */
+/* 1. Theme tokens                                              */
+/* ============================================================ */
+
+:root,
+[data-theme='dark'] {
+  --accent: #00ff41;
+  --accent-soft: rgba(0, 255, 65, 0.08);
+  --accent-line: rgba(0, 255, 65, 0.25);
+  --accent-glow: rgba(0, 255, 65, 0.15);
+  --accent-fn: #7dffa0;
+  --accent-num: #00e5ff;
+  --accent-str: #ffa500;
+  --accent-com: #2b7d47;
   --danger: #ff0044;
+  --danger-soft: rgba(255, 0, 68, 0.1);
   --warning: #ffa500;
-  --bg-primary: #0a0a0a;
-  --bg-secondary: #141414;
-  --text-primary: #00ff41;
-  --text-secondary: #00ff41;
-  --border-color: rgba(0, 255, 65, 0.2);
-  --shadow: 0 0 40px rgba(0, 255, 65, 0.05);
-  --glow: 0 0 20px rgba(0, 255, 65, 0.1);
+  --warning-soft: rgba(255, 165, 0, 0.1);
+
+  --bg: #0a0a0a;
+  --bg-elev: #111111;
+  --surface-1: rgba(0, 0, 0, 0.5);
+  --surface-2: rgba(0, 255, 65, 0.05);
+  --surface-3: rgba(0, 255, 65, 0.03);
+
+  --text: #cfe9d6;
+  --text-strong: var(--accent);
+  --text-dim: rgba(0, 255, 65, 0.55);
+  --text-faint: rgba(0, 255, 65, 0.35);
+
+  --border: rgba(0, 255, 65, 0.12);
+  --border-strong: rgba(0, 255, 65, 0.3);
+  --border-accent: var(--accent);
+
+  --code-bg: linear-gradient(180deg, rgba(0, 20, 8, 0.9), rgba(0, 10, 4, 0.95));
+  --code-border: rgba(0, 255, 65, 0.25);
+
+  --shadow-1: 0 0 20px rgba(0, 255, 65, 0.05);
+  --shadow-2: 0 0 40px rgba(0, 255, 65, 0.1);
+
+  --option-bg: #0a0a0a;
+  --option-fg: #cfe9d6;
+  --option-bg-selected: rgba(0, 255, 65, 0.15);
+  --option-fg-selected: #00ff41;
+
+  --font-mono: 'Courier New', 'SFMono-Regular', Consolas, monospace;
+  --radius-sm: 2px;
+  --radius-md: 4px;
+  --radius-lg: 6px;
+
+  --t-fast: 150ms ease;
+  --t-base: 250ms ease;
+  --t-slow: 350ms ease;
 }
 
-* {
+[data-theme='light'] {
+  /* Light theme keeps the "terminal" vibe but swaps to paper/green ink. */
+  --accent: #0a7a25;
+  --accent-soft: rgba(10, 122, 37, 0.08);
+  --accent-line: rgba(10, 122, 37, 0.25);
+  --accent-glow: rgba(10, 122, 37, 0.1);
+  --accent-fn: #0d5c1e;
+  --accent-num: #0a5a7a;
+  --accent-str: #a35a00;
+  --accent-com: #6a8c74;
+  --danger: #c00030;
+  --danger-soft: rgba(192, 0, 48, 0.08);
+  --warning: #a35a00;
+  --warning-soft: rgba(163, 90, 0, 0.08);
+
+  --bg: #f4f6f1;
+  --bg-elev: #ffffff;
+  --surface-1: rgba(255, 255, 255, 0.7);
+  --surface-2: rgba(10, 122, 37, 0.04);
+  --surface-3: rgba(10, 122, 37, 0.02);
+
+  --text: #1a2e22;
+  --text-strong: var(--accent);
+  --text-dim: rgba(10, 122, 37, 0.7);
+  --text-faint: rgba(10, 122, 37, 0.45);
+
+  --border: rgba(10, 122, 37, 0.15);
+  --border-strong: rgba(10, 122, 37, 0.35);
+  --border-accent: var(--accent);
+
+  --code-bg: linear-gradient(180deg, #f0f4ee, #eaf2e6);
+  --code-border: rgba(10, 122, 37, 0.2);
+
+  --shadow-1: 0 2px 8px rgba(10, 122, 37, 0.06);
+  --shadow-2: 0 4px 20px rgba(10, 122, 37, 0.08);
+
+  --option-bg: #ffffff;
+  --option-fg: #1a2e22;
+  --option-bg-selected: rgba(10, 122, 37, 0.15);
+  --option-fg-selected: #0a7a25;
+}
+
+/* ============================================================ */
+/* 2. Reset + base                                              */
+/* ============================================================ */
+
+*,
+*::before,
+*::after {
   margin: 0;
   padding: 0;
   box-sizing: border-box;
 }
 
+html,
 body {
-  font-family: 'Courier New', monospace;
-  background: #0a0a0a;
+  height: 100%;
+}
+
+body {
+  font-family: var(--font-mono);
+  background: var(--bg);
   min-height: 100vh;
   padding: 20px;
-  color: #00ff41;
+  color: var(--text);
+  transition: background-color var(--t-base), color var(--t-base);
   background-image:
-    linear-gradient(rgba(0, 255, 65, 0.02) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(0, 255, 65, 0.02) 1px, transparent 1px);
+    linear-gradient(var(--surface-3) 1px, transparent 1px),
+    linear-gradient(90deg, var(--surface-3) 1px, transparent 1px);
   background-size: 20px 20px;
 }
 
@@ -37,13 +132,19 @@ body {
   margin: 0 auto;
 }
 
-/* Scrollbar */
-::-webkit-scrollbar { width: 8px; height: 8px; }
-::-webkit-scrollbar-track { background: rgba(0, 0, 0, 0.5); border-radius: 2px; }
-::-webkit-scrollbar-thumb { background: rgba(0, 255, 65, 0.3); border-radius: 2px; }
-::-webkit-scrollbar-thumb:hover { background: rgba(0, 255, 65, 0.5); }
+/* ============================================================ */
+/* 3. Scrollbar                                                 */
+/* ============================================================ */
 
-/* Animations */
+::-webkit-scrollbar { width: 8px; height: 8px; }
+::-webkit-scrollbar-track { background: var(--surface-1); border-radius: var(--radius-sm); }
+::-webkit-scrollbar-thumb { background: var(--accent-line); border-radius: var(--radius-sm); }
+::-webkit-scrollbar-thumb:hover { background: var(--accent); }
+
+/* ============================================================ */
+/* 4. Animations (with reduced-motion safety)                   */
+/* ============================================================ */
+
 @keyframes fadeIn {
   from { opacity: 0; transform: translateY(10px); }
   to { opacity: 1; transform: translateY(0); }
@@ -59,216 +160,158 @@ body {
 @keyframes spin { to { transform: rotate(360deg); } }
 @keyframes glitchLine { 0%, 100% { opacity: 1; } 50% { opacity: 0.3; } }
 @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.5; } }
-@keyframes scanline {
-  0% { transform: translateY(-100%); }
-  100% { transform: translateY(100%); }
+
+.fade-in { animation: fadeIn var(--t-base) both; }
+.slide-in { animation: slideUp var(--t-base) both; }
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+    scroll-behavior: auto !important;
+  }
 }
 
-.fade-in { animation: fadeIn 0.3s ease forwards; }
-.slide-in { animation: slideUp 0.3s ease forwards; }
+/* ============================================================ */
+/* 5. Buttons / focus                                           */
+/* ============================================================ */
 
-button { position: relative; overflow: hidden; transition: all 0.3s ease; }
-button:hover:not(:disabled) { transform: translateY(-2px); box-shadow: 0 0 30px rgba(0, 255, 65, 0.1); }
+button {
+  position: relative;
+  transition: all var(--t-fast);
+  font-family: inherit;
+}
+
+button:hover:not(:disabled) {
+  transform: translateY(-1px);
+  box-shadow: var(--shadow-1);
+}
 button:active:not(:disabled) { transform: translateY(0); }
 
 button:focus-visible,
 input:focus-visible,
-textarea:focus-visible {
-  outline: 2px solid #00ff41;
+textarea:focus-visible,
+a:focus-visible {
+  outline: 2px solid var(--accent);
   outline-offset: 2px;
 }
 
-.glitch { animation: glitch 3s infinite; }
-@keyframes glitch {
-  0%, 100% { transform: translate(0); }
-  20% { transform: translate(-2px, 2px); }
-  40% { transform: translate(2px, -2px); }
-  60% { transform: translate(-1px, 1px); }
-  80% { transform: translate(1px, -1px); }
+/* Native <select> popups are OS-rendered; only <option> respects
+   explicit bg/fg. Keep them in sync with the theme tokens. */
+select {
+  color-scheme: dark;
 }
 
-.scanline { position: relative; overflow: hidden; }
-.scanline::after {
-  content: '';
-  position: absolute;
-  top: 0; left: 0; right: 0;
-  height: 100%;
-  background: linear-gradient(to bottom, transparent 50%, rgba(0, 255, 65, 0.01) 50%);
-  background-size: 100% 4px;
-  pointer-events: none;
-  animation: scanline 8s linear infinite;
+[data-theme='light'] select {
+  color-scheme: light;
 }
 
-@media (max-width: 768px) { body { padding: 12px; } }
-@media (max-width: 480px) { body { padding: 8px; } }
+select option {
+  background-color: var(--option-bg);
+  color: var(--option-fg);
+}
 
-/* ============================================ */
-/* Note preview typography (shared by editor   */
-/* preview + viewer)                            */
-/* ============================================ */
+select option:checked,
+select option:hover {
+  background-color: var(--option-bg-selected);
+  color: var(--option-fg-selected);
+}
+
+/* ============================================================ */
+/* 6. Note preview typography (shared by editor / viewer / share)*/
+/* ============================================================ */
 
 .note-preview {
-  font-family: 'Courier New', monospace;
-  line-height: 1.8;
+  font-family: var(--font-mono);
+  line-height: 1.75;
   word-break: break-word;
+  color: var(--text);
 }
 
 .note-preview h1 {
   font-size: 2rem;
-  margin: 0.5rem 0;
-  border-bottom: 1px solid rgba(0, 255, 65, 0.1);
+  margin: 0.6rem 0 0.4rem;
+  border-bottom: 1px solid var(--border);
   padding-bottom: 0.25rem;
+  color: var(--text-strong);
 }
+.note-preview h2 { font-size: 1.5rem; margin: 0.5rem 0; color: var(--text-strong); }
+.note-preview h3 { font-size: 1.2rem; margin: 0.5rem 0; color: var(--text-strong); }
+.note-preview h4,
+.note-preview h5,
+.note-preview h6 { font-size: 1.05rem; margin: 0.5rem 0; color: var(--text-strong); }
 
-.note-preview h2 { font-size: 1.5rem; margin: 0.5rem 0; }
-.note-preview h3 { font-size: 1.2rem; margin: 0.5rem 0; }
+.note-preview p { margin: 8px 0; }
 
 .note-preview ul,
 .note-preview ol {
   padding-left: 28px;
   margin: 8px 0;
 }
-
 .note-preview li { margin-bottom: 4px; }
+.note-preview li > ul,
+.note-preview li > ol { margin: 4px 0 4px 0; }
 
 .note-preview blockquote {
-  border-left: 3px solid #00ff41;
+  border-left: 3px solid var(--accent);
   padding-left: 16px;
-  opacity: 0.75;
+  opacity: 0.8;
   margin: 8px 0;
-}
-
-.note-preview pre {
-  background-color: rgba(0, 0, 0, 0.6);
-  padding: 12px 16px;
-  border-radius: 4px;
-  overflow: auto;
-  border: 1px solid rgba(0, 255, 65, 0.1);
-  margin: 8px 0;
-}
-
-.note-preview code {
-  background-color: rgba(0, 0, 0, 0.4);
-  padding: 2px 6px;
-  border-radius: 2px;
-  font-size: 0.9em;
-}
-
-.note-preview pre code {
-  background: none;
-  padding: 0;
+  color: var(--text-dim);
 }
 
 .note-preview a {
-  color: #00ff41;
+  color: var(--accent);
   text-decoration: underline;
+  text-underline-offset: 2px;
 }
+.note-preview a:hover { color: var(--text-strong); }
+
+.note-preview strong { color: var(--text-strong); }
+.note-preview em { color: var(--text-strong); font-style: italic; }
 
 .note-preview img {
   max-width: 100%;
-  border-radius: 4px;
-  margin: 8px 0;
+  border-radius: var(--radius-lg);
+  margin: 10px 0;
   display: block;
-  border: 1px solid rgba(0, 255, 65, 0.1);
+  border: 1px solid var(--border);
 }
 
-/* ============================================ */
-/* Interactive task checkboxes                  */
-/* ============================================ */
-
-.note-preview .task-item {
-  display: flex;
-  align-items: flex-start;
-  gap: 10px;
-  margin: 4px 0;
-  padding: 2px 0;
-  line-height: 1.7;
+.note-preview hr {
+  border: none;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, var(--accent-line), transparent);
+  margin: 20px 0;
 }
 
-.note-preview .task-item input[type="checkbox"] {
-  appearance: none;
-  -webkit-appearance: none;
-  width: 18px;
-  height: 18px;
-  margin-top: 4px;
-  border: 1.5px solid #00ff41;
-  border-radius: 3px;
-  background: rgba(0, 255, 65, 0.03);
-  cursor: pointer;
-  flex-shrink: 0;
-  position: relative;
-  transition: all 0.15s ease;
+/* ============================================================ */
+/* 7. Inline code + fenced code blocks                          */
+/* ============================================================ */
+
+.note-preview :not(pre) > code {
+  background: var(--accent-soft);
+  border: 1px solid var(--accent-line);
+  padding: 1px 6px;
+  border-radius: var(--radius-sm);
+  color: var(--accent-fn);
+  font-size: 0.92em;
 }
-
-.note-preview .task-item input[type="checkbox"]:not(:disabled):hover {
-  background: rgba(0, 255, 65, 0.12);
-  box-shadow: 0 0 8px rgba(0, 255, 65, 0.3);
-}
-
-.note-preview .task-item input[type="checkbox"]:checked {
-  background: #00ff41;
-  border-color: #00ff41;
-}
-
-.note-preview .task-item input[type="checkbox"]:checked::after {
-  content: '✓';
-  position: absolute;
-  top: 50%;
-  left: 50%;
-  transform: translate(-50%, -50%);
-  color: #0a0a0a;
-  font-size: 13px;
-  font-weight: 900;
-  line-height: 1;
-  font-family: monospace;
-}
-
-.note-preview .task-item input[type="checkbox"]:disabled {
-  cursor: default;
-  opacity: 0.9;
-}
-
-.note-preview .task-item.checked span {
-  opacity: 0.5;
-  text-decoration: line-through;
-}
-
-/* ============================================ */
-/* Misc                                         */
-/* ============================================ */
-
-.toolbar-button:hover {
-  background: rgba(0, 255, 65, 0.1);
-  border-color: #00ff41;
-}
-
-.editor-textarea:focus,
-.editor-input:focus {
-  border-color: #00ff41;
-  box-shadow: 0 0 20px rgba(0, 255, 65, 0.05);
-}
-
-.password-strength-bar {
-  transition: width 0.3s ease, background-color 0.3s ease;
-}
-
-/* ============================================ */
-/* Code block theming + syntax highlighting     */
-/* ============================================ */
 
 .note-preview pre {
   position: relative;
-  background: linear-gradient(180deg, rgba(0, 20, 8, 0.9) 0%, rgba(0, 10, 4, 0.95) 100%);
-  border: 1px solid rgba(0, 255, 65, 0.25);
-  border-left: 3px solid #00ff41;
-  border-radius: 3px;
+  background: var(--code-bg);
+  border: 1px solid var(--code-border);
+  border-left: 3px solid var(--accent);
+  border-radius: var(--radius-md);
   padding: 14px 18px;
   margin: 12px 0;
   overflow: auto;
-  box-shadow:
-    inset 0 0 30px rgba(0, 255, 65, 0.04),
-    0 0 12px rgba(0, 255, 65, 0.06);
-  font-family: 'Courier New', monospace;
+  box-shadow: var(--shadow-1);
+  font-family: var(--font-mono);
   font-size: 0.88em;
   line-height: 1.7;
 }
@@ -276,11 +319,9 @@ textarea:focus-visible {
 .note-preview pre::before {
   content: '';
   position: absolute;
-  top: 0;
-  left: 0;
-  right: 0;
+  top: 0; left: 0; right: 0;
   height: 1px;
-  background: linear-gradient(90deg, transparent, rgba(0, 255, 65, 0.35), transparent);
+  background: linear-gradient(90deg, transparent, var(--accent-line), transparent);
   pointer-events: none;
 }
 
@@ -288,106 +329,164 @@ textarea:focus-visible {
   background: none;
   padding: 0;
   border: none;
-  color: #cfe9d6;
+  color: var(--text);
   font-family: inherit;
   display: block;
   white-space: pre;
 }
 
-.note-preview pre code[class*="language-"]::before {
-  content: attr(class);
-  display: none;
-}
+/* ============================================================ */
+/* 8. highlight.js token palette (theme-aware)                   */
+/* ============================================================ */
 
-/* Inline code (outside <pre>) */
-.note-preview :not(pre) > code {
-  background: rgba(0, 255, 65, 0.08);
-  border: 1px solid rgba(0, 255, 65, 0.18);
-  padding: 1px 6px;
-  border-radius: 3px;
-  color: #7dffa0;
-  font-size: 0.92em;
-}
+.note-preview .hljs,
+.note-preview .hljs * { color: var(--text); background: transparent; }
 
-/* ---- Token palette ---- */
-
-.note-preview .tok-key {
-  color: #00ff41;
-  font-weight: 700;
-}
-
-.note-preview .tok-str {
-  color: #ffa500;
-}
-
-.note-preview .tok-num {
-  color: #00e5ff;
-}
-
-.note-preview .tok-com {
-  color: #2b7d47;
+.note-preview .hljs-comment,
+.note-preview .hljs-quote {
+  color: var(--accent-com);
   font-style: italic;
 }
 
-.note-preview .tok-fn {
-  color: #7dffa0;
-}
-
-.note-preview .tok-tag {
-  color: #00ff41;
+.note-preview .hljs-keyword,
+.note-preview .hljs-selector-tag,
+.note-preview .hljs-literal,
+.note-preview .hljs-section,
+.note-preview .hljs-doctag,
+.note-preview .hljs-name,
+.note-preview .hljs-strong {
+  color: var(--accent);
   font-weight: 700;
 }
 
-.note-preview .tok-attr {
-  color: #ffa500;
+.note-preview .hljs-string,
+.note-preview .hljs-attr,
+.note-preview .hljs-symbol,
+.note-preview .hljs-bullet,
+.note-preview .hljs-addition,
+.note-preview .hljs-template-tag,
+.note-preview .hljs-template-variable {
+  color: var(--accent-str);
 }
 
-.note-preview .tok-prop {
-  color: #7dffa0;
+.note-preview .hljs-number,
+.note-preview .hljs-regexp,
+.note-preview .hljs-meta,
+.note-preview .hljs-link {
+  color: var(--accent-num);
 }
 
-.note-preview .tok-val {
-  color: #ffa500;
+.note-preview .hljs-title,
+.note-preview .hljs-title.class_,
+.note-preview .hljs-title.function_,
+.note-preview .hljs-built_in,
+.note-preview .hljs-type {
+  color: var(--accent-fn);
 }
 
-.note-preview .tok-sel {
-  color: #00ff41;
-  font-weight: 600;
+.note-preview .hljs-variable,
+.note-preview .hljs-params,
+.note-preview .hljs-property {
+  color: var(--accent-num);
 }
 
-.note-preview .tok-var {
-  color: #00e5ff;
+.note-preview .hljs-tag,
+.note-preview .hljs-selector-id,
+.note-preview .hljs-selector-class,
+.note-preview .hljs-selector-attr,
+.note-preview .hljs-selector-pseudo {
+  color: var(--accent);
 }
 
-/* A subtle line-gutter on the left of code blocks */
-.note-preview pre code {
-  padding-left: 6px;
-  border-left: 1px solid rgba(0, 255, 65, 0.1);
+.note-preview .hljs-deletion {
+  color: var(--danger);
 }
 
-/* ============================================ */
-/* Markdown tables                              */
-/* ============================================ */
+.note-preview .hljs-emphasis { font-style: italic; }
+
+/* ============================================================ */
+/* 9. Task list checkboxes                                      */
+/* ============================================================ */
+
+.note-preview ul:has(li.task-item) { list-style: none; padding-left: 4px; }
+
+.note-preview li.task-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  margin: 4px 0;
+  padding: 2px 0;
+  line-height: 1.7;
+  list-style: none;
+}
+
+.note-preview li.task-item input[type='checkbox'] {
+  appearance: none;
+  -webkit-appearance: none;
+  width: 18px;
+  height: 18px;
+  margin-top: 4px;
+  border: 1.5px solid var(--accent);
+  border-radius: 3px;
+  background: var(--accent-soft);
+  cursor: pointer;
+  flex-shrink: 0;
+  position: relative;
+  transition: all var(--t-fast);
+}
+
+.note-preview li.task-item input[type='checkbox']:not(:disabled):hover {
+  background: var(--accent-line);
+  box-shadow: 0 0 8px var(--accent-glow);
+}
+
+.note-preview li.task-item input[type='checkbox']:checked {
+  background: var(--accent);
+  border-color: var(--accent);
+}
+
+.note-preview li.task-item input[type='checkbox']:checked::after {
+  content: '✓';
+  position: absolute;
+  top: 50%; left: 50%;
+  transform: translate(-50%, -50%);
+  color: var(--bg);
+  font-size: 13px;
+  font-weight: 900;
+  line-height: 1;
+}
+
+.note-preview li.task-item input[type='checkbox']:disabled {
+  cursor: default;
+  opacity: 0.85;
+}
+
+.note-preview li.task-item.checked { opacity: 0.55; }
+.note-preview li.task-item.checked { text-decoration: line-through; }
+
+/* ============================================================ */
+/* 10. Tables                                                   */
+/* ============================================================ */
 
 .note-preview table.md-table {
   border-collapse: collapse;
   width: 100%;
   margin: 12px 0;
-  font-family: 'Courier New', monospace;
+  font-family: var(--font-mono);
   font-size: 0.92em;
-  border: 1px solid rgba(0, 255, 65, 0.2);
+  border: 1px solid var(--border-strong);
 }
 
 .note-preview table.md-table th,
 .note-preview table.md-table td {
-  border: 1px solid rgba(0, 255, 65, 0.12);
+  border: 1px solid var(--border);
   padding: 8px 12px;
-  color: #cfe9d6;
+  color: var(--text);
 }
 
 .note-preview table.md-table th {
-  background: rgba(0, 255, 65, 0.06);
-  color: #00ff41;
+  background: var(--surface-2);
+  color: var(--text-strong);
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.5px;
@@ -395,16 +494,63 @@ textarea:focus-visible {
 }
 
 .note-preview table.md-table tr:nth-child(even) td {
-  background: rgba(0, 255, 65, 0.015);
+  background: var(--surface-3);
 }
 
-/* ============================================ */
-/* Horizontal rule                              */
-/* ============================================ */
+/* ============================================================ */
+/* 11. Theme toggle                                             */
+/* ============================================================ */
 
-.note-preview hr {
-  border: none;
-  height: 1px;
-  background: linear-gradient(90deg, transparent, rgba(0, 255, 65, 0.4), transparent);
-  margin: 20px 0;
+.theme-toggle:hover {
+  background: var(--accent-soft);
+  border-color: var(--accent);
+}
+
+/* ============================================================ */
+/* 12. Autosave indicator                                       */
+/* ============================================================ */
+
+.autosave-indicator {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
+  letter-spacing: 1px;
+  padding: 4px 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface-2);
+  color: var(--text-dim);
+}
+
+.autosave-indicator[data-status='saving'] { color: var(--warning); border-color: var(--warning); }
+.autosave-indicator[data-status='saved'] { color: var(--accent); border-color: var(--accent-line); }
+.autosave-indicator[data-status='error'] { color: var(--danger); border-color: var(--danger); }
+.autosave-indicator[data-status='conflict'] { color: var(--warning); border-color: var(--warning); }
+
+.autosave-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: currentColor;
+  display: inline-block;
+}
+.autosave-indicator[data-status='saving'] .autosave-dot {
+  animation: pulse 1s ease infinite;
+}
+
+/* ============================================================ */
+/* 13. Mobile                                                   */
+/* ============================================================ */
+
+@media (max-width: 768px) { body { padding: 12px; } }
+@media (max-width: 480px) { body { padding: 8px; } }
+
+/* ============================================================ */
+/* 14. Light-theme override for the closed <select> arrow       */
+/* ============================================================ */
+
+[data-theme='light'] select {
+  color-scheme: light;
 }

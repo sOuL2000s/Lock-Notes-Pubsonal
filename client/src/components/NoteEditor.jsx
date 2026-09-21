@@ -1,14 +1,16 @@
 // client/src/components/NoteEditor.jsx
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import {
   Eye, EyeOff, Image, Link, Bold, Italic,
   List, ListOrdered, Code, Quote, Heading1, Heading2, Heading3,
-  Upload, X, CheckSquare, Eye as EyeIcon, Pencil, Undo2, Redo2
+  Upload, X, CheckSquare, Eye as EyeIcon, Pencil, Save, AlertTriangle,
 } from 'lucide-react';
+import { renderMarkdown } from '../lib/markdown';
+import { useDebouncedAutosave } from '../hooks/useDebouncedAutosave';
+import { api } from '../services/api';
 
-// ----- Line-level helpers -----
+// ----- Line-level helpers (identical to previous version) -----
 
-// Given a full text + a character index, return { lineStart, lineEnd, lineText }
 const getLineBounds = (text, index) => {
   const clamped = Math.max(0, Math.min(index, text.length));
   const lineStart = text.lastIndexOf('\n', clamped - 1) + 1;
@@ -17,15 +19,12 @@ const getLineBounds = (text, index) => {
   return { lineStart, lineEnd, lineText: text.slice(lineStart, lineEnd) };
 };
 
-// Given text + a character index, return the [start, end] char range of all
-// lines that overlap the given selection [selStart, selEnd].
 const getSelectionLineRange = (text, selStart, selEnd) => {
   const first = getLineBounds(text, selStart);
   const last = getLineBounds(text, selEnd);
   return { start: first.lineStart, end: last.lineEnd };
 };
 
-// Prefix patterns
 const RE_H = /^(#{1,3})\s+/;
 const RE_QUOTE = /^>\s+/;
 const RE_BULLET = /^[-*•]\s+/;
@@ -33,7 +32,6 @@ const RE_NUMBER = /^(\d+)\.\s+/;
 const RE_TASK = /^[-*•]\s+\[([ xX])\]\s+/;
 const RE_CODE_FENCE = /^```/;
 
-// Detect the "kind" of a single line
 const detectLineKind = (line) => {
   if (RE_CODE_FENCE.test(line)) return { type: 'fence' };
   const task = line.match(RE_TASK);
@@ -48,7 +46,6 @@ const detectLineKind = (line) => {
   return { type: 'plain' };
 };
 
-// Strip any list/heading/quote prefix from a line and return the raw content
 const stripPrefix = (line) => {
   return line
     .replace(RE_TASK, '')
@@ -58,7 +55,21 @@ const stripPrefix = (line) => {
     .replace(RE_QUOTE, '');
 };
 
+// Relative time formatter for the autosave indicator
+function relativeTime(ts) {
+  if (!ts) return '';
+  const secs = Math.max(1, Math.round((Date.now() - ts) / 1000));
+  if (secs < 5) return 'just now';
+  if (secs < 60) return `${secs}s ago`;
+  const mins = Math.round(secs / 60);
+  if (mins < 60) return `${mins}m ago`;
+  const hours = Math.round(mins / 60);
+  return `${hours}h ago`;
+}
+
 function NoteEditor({ note, preVerifiedPassword = '', onSave, onCancel }) {
+  const isEditMode = !!note;
+
   const [title, setTitle] = useState('');
   const [content, setContent] = useState('');
   const [password, setPassword] = useState('');
@@ -72,9 +83,22 @@ function NoteEditor({ note, preVerifiedPassword = '', onSave, onCancel }) {
   const [imageUrl, setImageUrl] = useState('');
   const [isPreviewMode, setIsPreviewMode] = useState(false);
 
-  // Manual undo/redo stacks for programmatic edits (toolbar clicks, checkbox toggles)
-  const historyRef = useRef({ stack: [], index: -1, applying: false });
+  // Server-conflict state
+  const [conflictBanner, setConflictBanner] = useState(null);
 
+  // Version we last confirmed with the server (used for optimistic concurrency)
+  const [expectedVersion, setExpectedVersion] = useState(
+    note && typeof note.version === 'number' ? note.version : null
+  );
+
+  // Autosave ticker (so "Saved 5s ago" updates live)
+  const [, forceTick] = useState(0);
+  useEffect(() => {
+    const id = setInterval(() => forceTick((n) => n + 1), 5000);
+    return () => clearInterval(id);
+  }, []);
+
+  const historyRef = useRef({ stack: [], index: -1, applying: false });
   const fileInputRef = useRef(null);
   const editorRef = useRef(null);
 
@@ -82,26 +106,29 @@ function NoteEditor({ note, preVerifiedPassword = '', onSave, onCancel }) {
 
   useEffect(() => {
     setIsPreviewMode(false);
+    setConflictBanner(null);
     if (note) {
       setTitle(note.title || '');
       setContent(note.content || '');
       setPassword('');
       setCurrentPassword(preVerifiedPassword || '');
       setPasswordValidation({ isValid: false, message: '' });
+      setExpectedVersion(typeof note.version === 'number' ? note.version : null);
     } else {
       setTitle('');
       setContent('');
       setPassword('');
       setCurrentPassword('');
       setPasswordValidation({ isValid: false, message: '' });
+      setExpectedVersion(null);
       localStorage.removeItem('note_draft');
     }
     historyRef.current = { stack: [], index: -1, applying: false };
   }, [note, preVerifiedPassword]);
 
-  // Auto-save draft for new notes only
+  // Draft autosave for new notes (localStorage only)
   useEffect(() => {
-    if (note) return;
+    if (isEditMode) return;
     const saveDraft = () => {
       if (title || content) {
         localStorage.setItem('note_draft', JSON.stringify({ title, content, timestamp: Date.now() }));
@@ -109,12 +136,11 @@ function NoteEditor({ note, preVerifiedPassword = '', onSave, onCancel }) {
     };
     const interval = setInterval(saveDraft, 5000);
     return () => clearInterval(saveDraft);
-  }, [title, content, note]);
+  }, [title, content, isEditMode]);
 
-  // Load draft once
   useEffect(() => {
     const draft = localStorage.getItem('note_draft');
-    if (draft && !note) {
+    if (draft && !isEditMode) {
       try {
         const parsed = JSON.parse(draft);
         if (Date.now() - parsed.timestamp < 86400000) {
@@ -130,18 +156,15 @@ function NoteEditor({ note, preVerifiedPassword = '', onSave, onCancel }) {
 
   const pushHistory = (value) => {
     const h = historyRef.current;
-    // Truncate redo branch
     h.stack = h.stack.slice(0, h.index + 1);
     h.stack.push(value);
     h.index = h.stack.length - 1;
-    // Cap at 100
     if (h.stack.length > 100) {
       h.stack.shift();
       h.index--;
     }
   };
 
-  // Apply new content programmatically, without losing cursor if possible
   const applyContent = useCallback((nextContent, selStart, selEnd) => {
     setContent((prev) => {
       if (prev !== nextContent) pushHistory(prev);
@@ -158,18 +181,6 @@ function NoteEditor({ note, preVerifiedPassword = '', onSave, onCancel }) {
       });
     }
   }, []);
-
-  const handleUndo = () => {
-    const ta = editorRef.current;
-    if (ta) {
-      // Prefer native undo if the textarea has focus and history
-      try {
-        ta.focus();
-        // eslint-disable-next-line no-unused-expressions
-        document.execCommand && document.execCommand('undo');
-      } catch (e) { /* noop */ }
-    }
-  };
 
   // ----- Password validation -----
 
@@ -211,9 +222,6 @@ function NoteEditor({ note, preVerifiedPassword = '', onSave, onCancel }) {
     applyContent(next, start + text.length);
   };
 
-  // Toggle or apply a marker to all lines in the current selection.
-  // markerFn: (line, ctx) => string  -- returns the new line text
-  // The function receives the raw line; it must decide whether to strip or add.
   const transformLines = (transformFn) => {
     const ta = editorRef.current;
     if (!ta) return;
@@ -229,8 +237,6 @@ function NoteEditor({ note, preVerifiedPassword = '', onSave, onCancel }) {
     applyContent(next, start + (start >= rangeStart ? delta : 0), end + delta);
   };
 
-  // Generic "set this line to kind K" (converts from any other list kind)
-  // kind: 'plain' | 'bullet' | 'number' | 'task' | 'quote' | 'heading1..3' | 'code'
   const setLineKind = (kind, opts = {}) => {
     transformLines((line) => {
       const raw = stripPrefix(line).replace(/\s+$/, '');
@@ -238,7 +244,6 @@ function NoteEditor({ note, preVerifiedPassword = '', onSave, onCancel }) {
       const indentMatch = line.match(/^(\s*)/);
       const indent = indentMatch ? indentMatch[1] : '';
 
-      // Toggle-off behavior: if the line already has exactly this kind, strip to plain
       const current = detectLineKind(stripped);
       const alreadyThis =
         (kind === 'bullet' && current.type === 'bullet') ||
@@ -251,37 +256,23 @@ function NoteEditor({ note, preVerifiedPassword = '', onSave, onCancel }) {
         (kind === 'code' && current.type === 'fence') ||
         (kind === 'plain' && current.type === 'plain');
 
-      // If clicking the same kind → toggle off
-      if (alreadyThis && kind !== 'plain') {
-        return indent + raw;
-      }
+      if (alreadyThis && kind !== 'plain') return indent + raw;
 
       switch (kind) {
-        case 'plain':
-          return indent + raw;
-        case 'bullet':
-          return indent + '- ' + raw;
-        case 'number':
-          return indent + (opts.n || 1) + '. ' + raw;
-        case 'task':
-          return indent + '- [ ] ' + raw;
-        case 'quote':
-          return indent + '> ' + raw;
-        case 'heading1':
-          return indent + '# ' + raw;
-        case 'heading2':
-          return indent + '## ' + raw;
-        case 'heading3':
-          return indent + '### ' + raw;
-        case 'code':
-          return indent + '```' + raw;
-        default:
-          return line;
+        case 'plain': return indent + raw;
+        case 'bullet': return indent + '- ' + raw;
+        case 'number': return indent + (opts.n || 1) + '. ' + raw;
+        case 'task': return indent + '- [ ] ' + raw;
+        case 'quote': return indent + '> ' + raw;
+        case 'heading1': return indent + '# ' + raw;
+        case 'heading2': return indent + '## ' + raw;
+        case 'heading3': return indent + '### ' + raw;
+        case 'code': return indent + '```' + raw;
+        default: return line;
       }
     });
   };
 
-  // Wrap or unwrap a selection with a pair of markers (for **, *, `, etc.)
   const wrapSelection = (prefix, suffix = prefix) => {
     const ta = editorRef.current;
     if (!ta) return;
@@ -291,12 +282,7 @@ function NoteEditor({ note, preVerifiedPassword = '', onSave, onCancel }) {
     const before = content.slice(0, start);
     const after = content.slice(end);
 
-    // If selection is already wrapped, unwrap it
-    if (
-      before.endsWith(prefix) &&
-      after.startsWith(suffix) &&
-      selected.length >= 0
-    ) {
+    if (before.endsWith(prefix) && after.startsWith(suffix) && selected.length >= 0) {
       const next =
         before.slice(0, before.length - prefix.length) +
         selected +
@@ -306,7 +292,6 @@ function NoteEditor({ note, preVerifiedPassword = '', onSave, onCancel }) {
       return;
     }
 
-    // If the selection itself starts with prefix and ends with suffix, unwrap inside
     if (selected.startsWith(prefix) && selected.endsWith(suffix) && selected.length >= prefix.length + suffix.length) {
       const inner = selected.slice(prefix.length, selected.length - suffix.length);
       const next = before + inner + after;
@@ -314,7 +299,6 @@ function NoteEditor({ note, preVerifiedPassword = '', onSave, onCancel }) {
       return;
     }
 
-    // Otherwise wrap
     if (start === end) {
       const next = before + prefix + suffix + after;
       applyContent(next, start + prefix.length);
@@ -329,21 +313,14 @@ function NoteEditor({ note, preVerifiedPassword = '', onSave, onCancel }) {
 
   const handleFormat = (type) => {
     switch (type) {
-      case 'bold':
-        wrapSelection('**');
-        break;
-      case 'italic':
-        wrapSelection('*');
-        break;
-      case 'inlineCode':
-        wrapSelection('`');
-        break;
+      case 'bold': wrapSelection('**'); break;
+      case 'italic': wrapSelection('*'); break;
+      case 'inlineCode': wrapSelection('`'); break;
       case 'codeBlock': {
         const ta = editorRef.current;
         if (!ta) break;
         const { lineStart, lineEnd, lineText } = getLineBounds(content, ta.selectionStart);
         if (RE_CODE_FENCE.test(lineText)) {
-          // Remove fences on this line only
           const next = content.slice(0, lineStart) + lineText.replace(/^```/, '') + content.slice(lineEnd);
           applyContent(next, lineStart);
         } else {
@@ -352,20 +329,11 @@ function NoteEditor({ note, preVerifiedPassword = '', onSave, onCancel }) {
         }
         break;
       }
-      case 'h1':
-        setLineKind('heading1');
-        break;
-      case 'h2':
-        setLineKind('heading2');
-        break;
-      case 'h3':
-        setLineKind('heading3');
-        break;
-      case 'ul':
-        setLineKind('bullet');
-        break;
+      case 'h1': setLineKind('heading1'); break;
+      case 'h2': setLineKind('heading2'); break;
+      case 'h3': setLineKind('heading3'); break;
+      case 'ul': setLineKind('bullet'); break;
       case 'ol': {
-        // Number based on index inside selection
         const ta = editorRef.current;
         if (!ta) break;
         const { start: rs } = getSelectionLineRange(content, ta.selectionStart, ta.selectionEnd);
@@ -381,12 +349,8 @@ function NoteEditor({ note, preVerifiedPassword = '', onSave, onCancel }) {
         });
         break;
       }
-      case 'task':
-        setLineKind('task');
-        break;
-      case 'quote':
-        setLineKind('quote');
-        break;
+      case 'task': setLineKind('task'); break;
+      case 'quote': setLineKind('quote'); break;
       case 'link': {
         const ta = editorRef.current;
         if (!ta) break;
@@ -414,7 +378,6 @@ function NoteEditor({ note, preVerifiedPassword = '', onSave, onCancel }) {
     const start = ta.selectionStart;
     const end = ta.selectionEnd;
 
-    // ---- Enter: list continuation ----
     if (e.key === 'Enter' && !e.shiftKey && !e.altKey && !e.ctrlKey && !e.metaKey) {
       const { lineStart, lineEnd, lineText } = getLineBounds(content, start);
       const stripped = lineText.replace(/^\s+/, '');
@@ -428,7 +391,6 @@ function NoteEditor({ note, preVerifiedPassword = '', onSave, onCancel }) {
       if (isTask || isBullet || isNumber) {
         e.preventDefault();
 
-        // Empty item → drop marker and exit list
         if (isEmptyItem) {
           const next =
             content.slice(0, lineStart) +
@@ -440,7 +402,7 @@ function NoteEditor({ note, preVerifiedPassword = '', onSave, onCancel }) {
 
         let prefix;
         if (isTask) prefix = indent + '- [ ] ';
-        else if (isBullet) prefix = indent + (stripped.match(RE_BULLET)[0]) ;
+        else if (isBullet) prefix = indent + (stripped.match(RE_BULLET)[0]);
         else {
           const n = parseInt(stripped.match(RE_NUMBER)[1], 10);
           prefix = indent + (n + 1) + '. ';
@@ -452,7 +414,6 @@ function NoteEditor({ note, preVerifiedPassword = '', onSave, onCancel }) {
       }
     }
 
-    // ---- Backspace at start of a list item: smart merge ----
     if (e.key === 'Backspace' && start === end) {
       const { lineStart, lineText } = getLineBounds(content, start);
       if (start === lineStart + (lineText.match(/^(\s*)/) || ['', ''])[1].length) {
@@ -468,29 +429,24 @@ function NoteEditor({ note, preVerifiedPassword = '', onSave, onCancel }) {
       }
     }
 
-    // ---- Tab: indent / outdent list items ----
     if (e.key === 'Tab') {
       const { lineText } = getLineBounds(content, start);
       const stripped = lineText.replace(/^\s+/, '');
-      const isListItem = RE_TASK.test(stripped) || RE_BULLET.test(stripped) || RE_NUMBER.test(stripped) || RE_QUOTE.test(stripped);
+      const isListItem =
+        RE_TASK.test(stripped) ||
+        RE_BULLET.test(stripped) ||
+        RE_NUMBER.test(stripped) ||
+        RE_QUOTE.test(stripped);
 
       if (isListItem) {
         e.preventDefault();
         transformLines((line) => {
-          if (e.shiftKey) {
-            // Outdent: remove 2 spaces from the start
-            return line.replace(/^ {1,2}/, '');
-          } else {
-            // Indent: add 2 spaces
-            return '  ' + line;
-          }
+          if (e.shiftKey) return line.replace(/^ {1,2}/, '');
+          return '  ' + line;
         });
         return;
       }
     }
-
-    // ---- Mod+Z / Mod+Y: leave to native undo ----
-    // (No override — native textarea undo handles typed changes.)
   };
 
   // ----- Paste handler -----
@@ -499,7 +455,6 @@ function NoteEditor({ note, preVerifiedPassword = '', onSave, onCancel }) {
     const items = e.clipboardData?.items;
     if (!items) return;
 
-    // If a URL or text is pasted and it's an image URL, insert as markdown image
     for (const item of items) {
       if (item.type.startsWith('image/')) {
         e.preventDefault();
@@ -559,10 +514,7 @@ function NoteEditor({ note, preVerifiedPassword = '', onSave, onCancel }) {
 
   // ----- Interactive checkbox toggling (in preview) -----
 
-  // When a checkbox in preview mode is clicked, we need to find which task
-  // line in the source corresponds to it, and flip [ ] ↔ [x].
   const toggleTaskAtIndex = (taskIndex) => {
-    // Find the Nth task line in the content (0-based)
     const lines = content.split('\n');
     let seen = 0;
     for (let i = 0; i < lines.length; i++) {
@@ -583,317 +535,6 @@ function NoteEditor({ note, preVerifiedPassword = '', onSave, onCancel }) {
     }
   };
 
-  // ----- Markdown rendering -----
-
-  const escapeHtml = (s) =>
-    s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-
-  // ----- Syntax highlighting (theme-matched, no external library) -----
-
-  // Token colors are set via CSS classes (.tok-key, .tok-str, etc.)
-  const highlightGeneric = (code) => {
-    // Very light generic pass: strings, numbers, comments
-    return escapeHtml(code)
-      .replace(/(\/\/[^\n]*|#[^\n]*|--[^\n]*)/g, '<span class="tok-com">$1</span>')
-      .replace(/("(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*')/g, '<span class="tok-str">$1</span>')
-      .replace(/\b(\d+(?:\.\d+)?)\b/g, '<span class="tok-num">$1</span>');
-  };
-
-  const highlightJS = (code) => {
-    let out = escapeHtml(code);
-    // Block comments
-    out = out.replace(/\/\*[\s\S]*?\*\//g, (m) => `<span class="tok-com">${m}</span>`);
-    // Line comments
-    out = out.replace(/(^|[^:])\/\/[^\n]*/g, (m, p1) => `${p1}<span class="tok-com">${m.slice(p1.length)}</span>`);
-    // Strings (single, double, template)
-    out = out.replace(/(`(?:\\.|[^`\\])*`|"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*')/g,
-      (m) => `<span class="tok-str">${m}</span>`);
-    // Keywords
-    out = out.replace(
-      /\b(const|let|var|function|return|if|else|for|while|do|switch|case|break|continue|new|class|extends|super|this|try|catch|finally|throw|typeof|instanceof|in|of|import|export|from|as|default|async|await|yield|delete|void|null|undefined|true|false|interface|type|enum|implements|public|private|protected|readonly|static|namespace|declare|abstract)\b/g,
-      '<span class="tok-key">$1</span>'
-    );
-    // Numbers
-    out = out.replace(/\b(\d+(?:\.\d+)?(?:e[+-]?\d+)?)\b/gi, '<span class="tok-num">$1</span>');
-    // Function calls
-    out = out.replace(/\b([A-Za-z_$][\w$]*)(?=\s*\()/g, '<span class="tok-fn">$1</span>');
-    return out;
-  };
-
-  const highlightPython = (code) => {
-    let out = escapeHtml(code);
-    // Comments
-    out = out.replace(/(^|\s)#[^\n]*/g, (m, p1) => `${p1}<span class="tok-com">${m.slice(p1.length)}</span>`);
-    // Triple-quoted strings first
-    out = out.replace(/("""[\s\S]*?"""|'''[\s\S]*?''')/g, '<span class="tok-str">$1</span>');
-    // Single/double quoted
-    out = out.replace(/("(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*')/g, '<span class="tok-str">$1</span>');
-    // Keywords
-    out = out.replace(
-      /\b(def|class|return|if|elif|else|for|while|break|continue|pass|import|from|as|with|try|except|finally|raise|yield|lambda|global|nonlocal|assert|del|in|is|not|and|or|None|True|False|async|await|self)\b/g,
-      '<span class="tok-key">$1</span>'
-    );
-    // Numbers
-    out = out.replace(/\b(\d+(?:\.\d+)?)\b/g, '<span class="tok-num">$1</span>');
-    // Function defs
-    out = out.replace(/\b([A-Za-z_]\w*)(?=\s*\()/g, '<span class="tok-fn">$1</span>');
-    return out;
-  };
-
-  const highlightHTML = (code) => {
-    let out = escapeHtml(code);
-    // Comments
-    out = out.replace(/&lt;!--[\s\S]*?--&gt;/g, '<span class="tok-com">$&</span>');
-    // Tags
-    out = out.replace(/(&lt;\/?)([a-zA-Z][\w-]*)/g, '$1<span class="tok-tag">$2</span>');
-    // Attributes
-    out = out.replace(/\s([a-zA-Z-]+)=/g, ' <span class="tok-attr">$1</span>=');
-    // Strings inside attributes
-    out = out.replace(/=("(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*')/g, '=<span class="tok-str">$1</span>');
-    return out;
-  };
-
-  const highlightCSS = (code) => {
-    let out = escapeHtml(code);
-    out = out.replace(/\/\*[\s\S]*?\*\//g, '<span class="tok-com">$&</span>');
-    // Selectors at line start until { 
-    out = out.replace(/(^|\n)([^{}\n]+)(?=\s*\{)/g, (m, p1, p2) =>
-      `${p1}<span class="tok-sel">${p2}</span>`);
-    // Properties
-    out = out.replace(/([a-zA-Z-]+)(\s*:\s*)/g, '<span class="tok-prop">$1</span>$2');
-    // Values with colors/numbers
-    out = out.replace(/:\s*([^;{}\n]+)/g, (m, v) => `: <span class="tok-val">${v}</span>`);
-    out = out.replace(/#[0-9a-fA-F]{3,8}\b/g, '<span class="tok-num">$&</span>');
-    out = out.replace(/\b(\d+(?:\.\d+)?(?:px|em|rem|vh|vw|%|s|ms)?)\b/g, '<span class="tok-num">$1</span>');
-    return out;
-  };
-
-  const highlightJSON = (code) => {
-    let out = escapeHtml(code);
-    // Keys
-    out = out.replace(/"([^"\\]|\\.)*"(\s*:)/g, '<span class="tok-prop">$&</span>');
-    // Remaining strings
-    out = out.replace(/(:\s*)("(?:[^"\\]|\\.)*")/g, '$1<span class="tok-str">$2</span>');
-    // Numbers, booleans, null
-    out = out.replace(/\b(true|false|null)\b/g, '<span class="tok-key">$1</span>');
-    out = out.replace(/(:\s*)(-?\d+(?:\.\d+)?)/g, '$1<span class="tok-num">$2</span>');
-    return out;
-  };
-
-  const highlightBash = (code) => {
-    let out = escapeHtml(code);
-    out = out.replace(/(^|\s)#[^\n]*/g, (m, p1) => `${p1}<span class="tok-com">${m.slice(p1.length)}</span>`);
-    out = out.replace(/("(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*')/g, '<span class="tok-str">$1</span>');
-    out = out.replace(
-      /\b(echo|cd|ls|mkdir|rm|cp|mv|cat|grep|sed|awk|find|chmod|chown|sudo|apt|npm|yarn|pnpm|node|git|docker|kubectl|curl|wget|export|source|if|then|else|fi|for|do|done|while|function|return)\b/g,
-      '<span class="tok-key">$1</span>'
-    );
-    out = out.replace(/\$\w+|\$\{[^}]+\}/g, '<span class="tok-var">$&</span>');
-    return out;
-  };
-
-  const highlightCode = (code, lang) => {
-    const l = (lang || '').toLowerCase();
-    if (['js', 'javascript', 'jsx', 'ts', 'typescript', 'tsx', 'node'].includes(l)) return highlightJS(code);
-    if (['py', 'python'].includes(l)) return highlightPython(code);
-    if (['html', 'xml', 'svg', 'vue'].includes(l)) return highlightHTML(code);
-    if (['css', 'scss', 'sass', 'less'].includes(l)) return highlightCSS(code);
-    if (['json', 'jsonc'].includes(l)) return highlightJSON(code);
-    if (['sh', 'bash', 'shell', 'zsh', 'console'].includes(l)) return highlightBash(code);
-    return highlightGeneric(code);
-  };
-
-  const renderMarkdown = (text) => {
-    if (!text) return '';
-
-    const placeholders = [];
-    const stash = (html) => {
-      const key = `\u0000PH${placeholders.length}\u0000`;
-      placeholders.push(html);
-      return key;
-    };
-
-    let src = text;
-
-    // 1) Protect fenced code blocks (with language + syntax highlighting)
-    src = src.replace(/```([a-zA-Z0-9_+-]*)\n?([\s\S]*?)```/g, (_, lang, code) => {
-      const trimmed = code.replace(/\n$/, '');
-      const html = highlightCode(trimmed, lang);
-      const cls = lang ? ` class="language-${lang.toLowerCase()}"` : '';
-      return stash(`<pre><code${cls}>${html}</code></pre>`);
-    });
-
-    // 2) Protect inline code (must run AFTER fenced blocks)
-    src = src.replace(/`([^`\n]+)`/g, (_, code) =>
-      stash(`<code>${escapeHtml(code)}</code>`)
-    );
-
-    // 3) Protect images (markdown syntax) BEFORE escaping
-    src = src.replace(/!\[([^\]]*)\]\(([^)]+)\)/g, (_, alt, url) => {
-      const safe = /^(https?:|data:image\/|\/)/i.test(url.trim()) ? url.trim() : '';
-      if (!safe) return '';
-      return stash(
-        `<img src="${safe}" alt="${escapeHtml(alt || 'image')}" style="max-width:100%;border-radius:4px;margin:8px 0;display:block;" />`
-      );
-    });
-
-    // 3b) Protect raw <img ...> tags
-    src = src.replace(/<img\b[^>]*>/gi, (tag) => {
-      const srcMatch = tag.match(/src\s*=\s*"([^"]*)"/i) || tag.match(/src\s*=\s*'([^']*)'/i);
-      if (!srcMatch) return '';
-      const url = srcMatch[1];
-      const safe = /^(https?:|data:image\/|\/)/i.test(url.trim()) ? url.trim() : '';
-      if (!safe) return '';
-      return stash(
-        `<img src="${safe}" alt="Note image" style="max-width:100%;border-radius:4px;margin:8px 0;display:block;" />`
-      );
-    });
-
-    // 4) Escape HTML
-    src = escapeHtml(src);
-
-    // 5) Split into lines for block-level processing
-    const lines = src.split('\n');
-    const out = [];
-    let taskIndex = 0;
-
-    let i = 0;
-    let inList = null; // 'ul' | 'ol'
-    let listBuf = [];
-
-    const flushList = () => {
-      if (inList) {
-        out.push(`<${inList}>${listBuf.join('')}</${inList}>`);
-        listBuf = [];
-        inList = null;
-      }
-    };
-
-    while (i < lines.length) {
-      let line = lines[i];
-
-      // Task list item
-      const taskMatch = line.match(/^([-*•])\s+\[([ xX])\]\s+(.*)$/);
-      if (taskMatch) {
-        flushList();
-        const checked = taskMatch[2].toLowerCase() === 'x';
-        const textContent = taskMatch[3];
-        const idx = taskIndex++;
-        out.push(
-          `<div class="task-item${checked ? ' checked' : ''}">` +
-          `<input type="checkbox" ${checked ? 'checked' : ''} data-task-index="${idx}" class="task-checkbox" />` +
-          `<span>${textContent}</span>` +
-          `</div>`
-        );
-        i++;
-        continue;
-      }
-
-      // Bullet list item
-      const bulletMatch = line.match(/^([-*•])\s+(.*)$/);
-      if (bulletMatch) {
-        if (inList !== 'ul') { flushList(); inList = 'ul'; }
-        listBuf.push(`<li>${bulletMatch[2]}</li>`);
-        i++;
-        continue;
-      }
-
-      // Numbered list item
-      const numMatch = line.match(/^\d+\.\s+(.*)$/);
-      if (numMatch) {
-        if (inList !== 'ol') { flushList(); inList = 'ol'; }
-        listBuf.push(`<li>${numMatch[1]}</li>`);
-        i++;
-        continue;
-      }
-
-      // Any other line terminates current list
-      flushList();
-
-      // Horizontal rule
-      if (/^(?:---|\*\*\*|___)\s*$/.test(line)) {
-        out.push('<hr />');
-        i++;
-        continue;
-      }
-
-      // GFM tables: header row + separator row + body rows
-      if (
-        line.includes('|') &&
-        i + 1 < lines.length &&
-        /^\s*\|?\s*:?-{3,}:?\s*(\|\s*:?-{3,}:?\s*)+\|?\s*$/.test(lines[i + 1])
-      ) {
-        const parseRow = (row) =>
-          row.replace(/^\s*\|/, '').replace(/\|\s*$/, '').split('|').map((c) => c.trim());
-        const headers = parseRow(line);
-        const aligns = parseRow(lines[i + 1]).map((c) => {
-          const left = c.startsWith(':');
-          const right = c.endsWith(':');
-          if (left && right) return 'center';
-          if (right) return 'right';
-          if (left) return 'left';
-          return 'left';
-        });
-        const bodyRows = [];
-        let j = i + 2;
-        while (j < lines.length && lines[j].includes('|') && lines[j].trim() !== '') {
-          bodyRows.push(parseRow(lines[j]));
-          j++;
-        }
-        const thead = '<thead><tr>' + headers.map((h, k) =>
-          `<th style="text-align:${aligns[k] || 'left'}">${h}</th>`).join('') + '</tr></thead>';
-        const tbody = '<tbody>' + bodyRows.map((row) =>
-          '<tr>' + row.map((c, k) => `<td style="text-align:${aligns[k] || 'left'}">${c}</td>`).join('') + '</tr>'
-        ).join('') + '</tbody>';
-        out.push(`<table class="md-table">${thead}${tbody}</table>`);
-        i = j;
-        continue;
-      }
-
-      // Heading
-      if (/^### (.*)$/.test(line)) { out.push(line.replace(/^### (.*)$/, '<h3>$1</h3>')); i++; continue; }
-      if (/^## (.*)$/.test(line)) { out.push(line.replace(/^## (.*)$/, '<h2>$1</h2>')); i++; continue; }
-      if (/^# (.*)$/.test(line)) { out.push(line.replace(/^# (.*)$/, '<h1>$1</h1>')); i++; continue; }
-
-      // Blockquote
-      if (/^&gt;\s?(.*)$/.test(line)) {
-        out.push(line.replace(/^&gt;\s?(.*)$/, '<blockquote>$1</blockquote>'));
-        i++;
-        continue;
-      }
-
-      out.push(line);
-      i++;
-    }
-    flushList();
-
-    src = out.join('\u0000BLK\u0000');
-
-    // 6) Inline formatting
-    src = src.replace(/\*\*\*(.+?)\*\*\*/g, '<strong><em>$1</em></strong>');
-    src = src.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
-    src = src.replace(/(^|[^*])\*(?!\s)(.+?)(?<!\s)\*(?!\*)/g, '$1<em>$2</em>');
-    src = src.replace(/__(.+?)__/g, '<u>$1</u>');
-
-    // 7) Links
-    src = src.replace(/\[([^\]]+)\]\(([^)]+)\)/g, (_, label, url) => {
-      const safe = /^(https?:|mailto:)/i.test(url.trim()) ? url.trim() : '#';
-      return `<a href="${safe}" target="_blank" rel="noopener noreferrer">${label}</a>`;
-    });
-
-    // 8) Restore placeholders
-    src = src.replace(/\u0000PH(\d+)\u0000/g, (_, idx) => placeholders[Number(idx)] || '');
-
-    // 9) Line breaks on remaining newlines (but not inside <pre>)
-    src = src.replace(/\n/g, '<br />');
-
-    // 10) Restore block separators
-    src = src.replace(/\u0000BLK\u0000/g, '\n');
-
-    return src;
-  };
-
-  // Handle checkbox clicks in preview
   const handlePreviewClick = (e) => {
     const target = e.target;
     if (target && target.classList && target.classList.contains('task-checkbox')) {
@@ -904,6 +545,68 @@ function NoteEditor({ note, preVerifiedPassword = '', onSave, onCancel }) {
       }
     }
   };
+
+  // ----- Rendered markdown (memoized) -----
+
+  const renderedHtml = useMemo(
+    () => renderMarkdown(content, { interactiveTasks: true }),
+    [content]
+  );
+
+  // ----- Autosave (only in edit mode) -----
+
+  const autosavePayload = useMemo(
+    () => ({
+      title: title.trim(),
+      content,
+    }),
+    [title, content]
+  );
+
+  const autosaveSaveFn = useCallback(
+    async (payload, pw, expectedVer) => {
+      if (!note?._id) return;
+      const body = {
+        title: payload.title,
+        content: payload.content,
+        currentPassword: pw,
+      };
+      if (typeof expectedVer === 'number') body.expectedVersion = expectedVer;
+      const updated = await api.updateNote(note._id, body);
+      if (updated && typeof updated.version === 'number') {
+        setExpectedVersion(updated.version);
+      }
+      return updated;
+    },
+    [note?._id]
+  );
+
+  const autosaveEnabled = isEditMode && !loading && !!currentPassword && !!title.trim() && !!content.trim();
+
+  const {
+    status: autosaveStatus,
+    lastSavedAt,
+    conflict: autosaveConflict,
+    saveNow,
+    reset: resetAutosave,
+  } = useDebouncedAutosave({
+    id: note?._id,
+    payload: autosavePayload,
+    password: currentPassword,
+    version: expectedVersion,
+    saveFn: autosaveSaveFn,
+    delayMs: 2500,
+    enabled: autosaveEnabled,
+  });
+
+  // Surface a conflict banner when the hook detects one
+  useEffect(() => {
+    if (autosaveConflict) {
+      setConflictBanner({
+        serverNote: autosaveConflict,
+      });
+    }
+  }, [autosaveConflict]);
 
   // ----- Submit -----
 
@@ -917,44 +620,151 @@ function NoteEditor({ note, preVerifiedPassword = '', onSave, onCancel }) {
         title: title.trim(),
         content: content.trim(),
         password: password,
-        currentPassword: note ? currentPassword : undefined
+        currentPassword: isEditMode ? currentPassword : undefined,
       };
 
       if (!noteData.title) { setError('TITLE_REQUIRED'); setLoading(false); return; }
       if (!noteData.content) { setError('CONTENT_REQUIRED'); setLoading(false); return; }
 
-      if (!note) {
+      if (!isEditMode) {
         if (!password) { setError('PASSWORD_REQUIRED: Encryption key required'); setLoading(false); return; }
         if (!validatePassword(password)) { setError(passwordValidation.message); setLoading(false); return; }
       }
 
-      if (note) {
-        if (!currentPassword) { setError('CURRENT_PASSWORD_REQUIRED: Enter current password to make changes'); setLoading(false); return; }
-        if (password && !validatePassword(password)) { setError(passwordValidation.message); setLoading(false); return; }
+      if (isEditMode) {
+        if (!currentPassword) {
+          setError('CURRENT_PASSWORD_REQUIRED: Enter current password to make changes');
+          setLoading(false);
+          return;
+        }
+        if (password && !validatePassword(password)) {
+          setError(passwordValidation.message);
+          setLoading(false);
+          return;
+        }
+        if (typeof expectedVersion === 'number') {
+          noteData.expectedVersion = expectedVersion;
+        }
       }
 
-      if (note) await onSave(note._id, noteData);
+      if (isEditMode) await onSave(note._id, noteData);
       else await onSave(noteData);
 
       localStorage.removeItem('note_draft');
+      resetAutosave();
     } catch (err) {
-      setError(err.message || 'SAVE_FAILED');
+      if (err && err.conflict) {
+        setConflictBanner({ serverNote: err.serverNote });
+      } else {
+        setError(err.message || 'SAVE_FAILED');
+      }
     } finally {
       setLoading(false);
     }
   };
 
-  // ----- Render -----
+  // ----- Conflict resolution -----
 
-  const renderedHtml = renderMarkdown(content);
+  const resolveConflictKeepMine = async () => {
+    // Force the server to accept our version (skip expectedVersion) and bump locally
+    setConflictBanner(null);
+    if (!note?._id) return;
+    try {
+      const body = {
+        title: title.trim(),
+        content,
+        currentPassword,
+      };
+      const updated = await api.updateNote(note._id, body);
+      if (updated && typeof updated.version === 'number') setExpectedVersion(updated.version);
+      resetAutosave();
+    } catch (err) {
+      setError(err.message || 'CONFLICT_RESOLVE_FAILED');
+    }
+  };
+
+  const resolveConflictLoadServer = () => {
+    if (!conflictBanner?.serverNote) return;
+    const server = conflictBanner.serverNote;
+    setTitle(server.title || '');
+    setContent(server.content || '');
+    if (typeof server.version === 'number') setExpectedVersion(server.version);
+    setConflictBanner(null);
+    resetAutosave();
+  };
+
+  // ----- Autosave indicator -----
+
+  const autosaveIndicator = (() => {
+    if (!isEditMode) return null;
+    if (!currentPassword) {
+      return (
+        <span className="autosave-indicator" data-status="idle" title="Enter current password to enable autosave">
+          <span className="autosave-dot" />
+          AUTOSAVE_OFF
+        </span>
+      );
+    }
+    if (autosaveStatus === 'pending') {
+      return (
+        <span className="autosave-indicator" data-status="saving">
+          <span className="autosave-dot" />
+          UNSAVED_CHANGES
+        </span>
+      );
+    }
+    if (autosaveStatus === 'saving') {
+      return (
+        <span className="autosave-indicator" data-status="saving">
+          <span className="autosave-dot" />
+          SAVING…
+        </span>
+      );
+    }
+    if (autosaveStatus === 'saved') {
+      return (
+        <span className="autosave-indicator" data-status="saved">
+          <span className="autosave-dot" />
+          SAVED · {relativeTime(lastSavedAt)}
+        </span>
+      );
+    }
+    if (autosaveStatus === 'error') {
+      return (
+        <span className="autosave-indicator" data-status="error" title="Autosave failed. Click Save to retry.">
+          <span className="autosave-dot" />
+          AUTOSAVE_FAILED
+        </span>
+      );
+    }
+    if (autosaveStatus === 'conflict') {
+      return (
+        <span className="autosave-indicator" data-status="conflict">
+          <span className="autosave-dot" />
+          CONFLICT
+        </span>
+      );
+    }
+    return (
+      <span className="autosave-indicator" data-status="idle">
+        <span className="autosave-dot" />
+        AUTOSAVE_READY
+      </span>
+    );
+  })();
+
+  // ----- Render -----
 
   return (
     <div style={styles.container}>
       <div style={styles.card}>
         <div style={styles.header}>
-          <h2 style={styles.title}>
-            {note ? '// EDIT_NOTE' : '// CREATE_NOTE'}
-          </h2>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flexWrap: 'wrap' }}>
+            <h2 style={styles.title}>
+              {isEditMode ? '// EDIT_NOTE' : '// CREATE_NOTE'}
+            </h2>
+            {autosaveIndicator}
+          </div>
           <button
             type="button"
             onClick={() => setIsPreviewMode(!isPreviewMode)}
@@ -974,6 +784,31 @@ function NoteEditor({ note, preVerifiedPassword = '', onSave, onCancel }) {
             )}
           </button>
         </div>
+
+        {conflictBanner && (
+          <div style={styles.conflictBanner}>
+            <AlertTriangle size={18} style={{ flexShrink: 0 }} />
+            <div style={{ flex: 1 }}>
+              <strong>CONFLICT:</strong> this note was updated elsewhere.
+            </div>
+            <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+              <button
+                type="button"
+                onClick={resolveConflictLoadServer}
+                style={styles.conflictButton}
+              >
+                LOAD_SERVER_VERSION
+              </button>
+              <button
+                type="button"
+                onClick={resolveConflictKeepMine}
+                style={styles.conflictButtonDanger}
+              >
+                KEEP_MINE
+              </button>
+            </div>
+          </div>
+        )}
 
         <form onSubmit={handleSubmit}>
           <div style={styles.formGroup}>
@@ -1080,9 +915,9 @@ function NoteEditor({ note, preVerifiedPassword = '', onSave, onCancel }) {
             )}
           </div>
 
-          {!note && (
+          {!isEditMode && (
             <div style={styles.formGroup}>
-              <label style={styles.label}>ENCRYPTION_KEY <span style={{ color: '#ff0044' }}>*</span></label>
+              <label style={styles.label}>ENCRYPTION_KEY <span style={{ color: 'var(--danger)' }}>*</span></label>
               <div style={styles.passwordInputWrapper}>
                 <input
                   type={showPassword ? 'text' : 'password'}
@@ -1098,16 +933,16 @@ function NoteEditor({ note, preVerifiedPassword = '', onSave, onCancel }) {
                 </button>
               </div>
               {passwordValidation.message && (
-                <div style={{ ...styles.validationMessage, color: passwordValidation.isValid ? '#00ff41' : '#ffa500' }}>
+                <div style={{ ...styles.validationMessage, color: passwordValidation.isValid ? 'var(--accent)' : 'var(--warning)' }}>
                   {passwordValidation.message}
                 </div>
               )}
             </div>
           )}
 
-          {note && (
+          {isEditMode && (
             <div style={styles.formGroup}>
-              <label style={styles.label}>CURRENT_PASSWORD <span style={{ color: '#ff0044' }}>*</span></label>
+              <label style={styles.label}>CURRENT_PASSWORD <span style={{ color: 'var(--danger)' }}>*</span></label>
               <div style={styles.passwordInputWrapper}>
                 <input
                   type={showCurrentPassword ? 'text' : 'password'}
@@ -1122,13 +957,13 @@ function NoteEditor({ note, preVerifiedPassword = '', onSave, onCancel }) {
                   {showCurrentPassword ? <EyeOff size={18} /> : <Eye size={18} />}
                 </button>
               </div>
-              <div style={{ fontSize: '0.7rem', color: '#00ff41', opacity: 0.4, marginTop: '4px' }}>
-                [ Current password is required to update this note ]
+              <div style={styles.hintText}>
+                [ REQUIRED TO UPDATE THIS NOTE · AUTOSAVE USES THIS ]
               </div>
             </div>
           )}
 
-          {note && (
+          {isEditMode && (
             <div style={styles.formGroup}>
               <label style={styles.label}>NEW_ENCRYPTION_KEY (optional)</label>
               <div style={styles.passwordInputWrapper}>
@@ -1145,7 +980,7 @@ function NoteEditor({ note, preVerifiedPassword = '', onSave, onCancel }) {
                 </button>
               </div>
               {password && passwordValidation.message && (
-                <div style={{ ...styles.validationMessage, color: passwordValidation.isValid ? '#00ff41' : '#ffa500' }}>
+                <div style={{ ...styles.validationMessage, color: passwordValidation.isValid ? 'var(--accent)' : 'var(--warning)' }}>
                   {passwordValidation.message}
                 </div>
               )}
@@ -1156,8 +991,20 @@ function NoteEditor({ note, preVerifiedPassword = '', onSave, onCancel }) {
 
           <div style={styles.actions}>
             <button type="submit" style={styles.saveButton} disabled={loading}>
-              {loading ? 'PROCESSING...' : (note ? 'UPDATE_NOTE' : 'CREATE_NOTE')}
+              <Save size={14} style={{ marginRight: '6px' }} />
+              {loading ? 'PROCESSING...' : (isEditMode ? 'UPDATE_NOTE' : 'CREATE_NOTE')}
             </button>
+            {isEditMode && autosaveEnabled && (
+              <button
+                type="button"
+                onClick={() => saveNow()}
+                style={styles.secondaryButton}
+                disabled={loading || autosaveStatus === 'saving'}
+                title="Force an immediate autosave"
+              >
+                SAVE_NOW
+              </button>
+            )}
             <button type="button" onClick={onCancel} style={styles.cancelButton} disabled={loading}>
               CANCEL
             </button>
@@ -1202,138 +1049,195 @@ function NoteEditor({ note, preVerifiedPassword = '', onSave, onCancel }) {
 }
 
 const styles = {
-  container: { padding: '20px 0', animation: 'slideDown 0.3s ease', width: '100%' },
+  container: { padding: '20px 0', animation: 'slideDown var(--t-base) both', width: '100%' },
   card: {
-    backgroundColor: '#0a0a0a',
-    border: '1px solid #00ff41',
-    borderRadius: '4px',
+    backgroundColor: 'var(--bg-elev)',
+    border: '1px solid var(--border-strong)',
+    borderRadius: 'var(--radius-md)',
     padding: 'clamp(20px, 4vw, 30px)',
-    boxShadow: '0 0 40px rgba(0, 255, 65, 0.1), inset 0 0 40px rgba(0, 255, 65, 0.02)',
+    boxShadow: 'var(--shadow-2)',
     maxWidth: '900px',
     margin: '0 auto',
-    width: '100%'
+    width: '100%',
   },
-  header: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '25px' },
-  title: { color: '#00ff41', fontSize: 'clamp(1.2rem, 3vw, 1.6rem)', wordBreak: 'break-word', fontFamily: 'monospace', letterSpacing: '1px' },
+  header: {
+    display: 'flex',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: '25px',
+    gap: '12px',
+    flexWrap: 'wrap',
+  },
+  title: {
+    color: 'var(--accent)',
+    fontSize: 'clamp(1.2rem, 3vw, 1.6rem)',
+    wordBreak: 'break-word',
+    fontFamily: 'var(--font-mono)',
+    letterSpacing: '1px',
+    margin: 0,
+  },
   previewToggle: {
-    backgroundColor: 'rgba(0, 255, 65, 0.05)',
-    color: '#00ff41',
+    backgroundColor: 'var(--surface-2)',
+    color: 'var(--accent)',
     padding: '8px 16px',
-    border: '1px solid rgba(0, 255, 65, 0.2)',
-    borderRadius: '2px',
+    border: '1px solid var(--border)',
+    borderRadius: 'var(--radius-sm)',
     cursor: 'pointer',
     fontSize: '0.8rem',
-    fontFamily: 'monospace',
-    transition: 'all 0.3s ease',
+    fontFamily: 'var(--font-mono)',
+    transition: 'all var(--t-fast)',
     display: 'inline-flex',
     alignItems: 'center',
     justifyContent: 'center',
     gap: '2px',
-    letterSpacing: '1px'
+    letterSpacing: '1px',
+  },
+  conflictBanner: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '12px',
+    padding: '12px 16px',
+    marginBottom: '16px',
+    background: 'var(--warning-soft)',
+    color: 'var(--warning)',
+    border: '1px solid var(--warning)',
+    borderRadius: 'var(--radius-sm)',
+    fontFamily: 'var(--font-mono)',
+    fontSize: '0.8rem',
+    flexWrap: 'wrap',
+  },
+  conflictButton: {
+    background: 'var(--surface-2)',
+    color: 'var(--accent)',
+    border: '1px solid var(--border-strong)',
+    borderRadius: 'var(--radius-sm)',
+    padding: '6px 12px',
+    cursor: 'pointer',
+    fontFamily: 'var(--font-mono)',
+    fontSize: '0.7rem',
+    letterSpacing: '1px',
+    transition: 'all var(--t-fast)',
+  },
+  conflictButtonDanger: {
+    background: 'var(--danger-soft)',
+    color: 'var(--danger)',
+    border: '1px solid var(--danger)',
+    borderRadius: 'var(--radius-sm)',
+    padding: '6px 12px',
+    cursor: 'pointer',
+    fontFamily: 'var(--font-mono)',
+    fontSize: '0.7rem',
+    letterSpacing: '1px',
+    transition: 'all var(--t-fast)',
   },
   formGroup: { marginBottom: '20px' },
   label: {
     display: 'block',
-    color: '#00ff41',
-    opacity: 0.6,
+    color: 'var(--text-dim)',
     marginBottom: '8px',
     fontWeight: '700',
     fontSize: 'clamp(0.7rem, 1.5vw, 0.8rem)',
-    fontFamily: 'monospace',
-    letterSpacing: '1px'
+    fontFamily: 'var(--font-mono)',
+    letterSpacing: '1px',
   },
   input: {
     width: '100%',
     padding: '10px 14px',
-    border: '1px solid rgba(0, 255, 65, 0.2)',
-    borderRadius: '2px',
+    border: '1px solid var(--border)',
+    borderRadius: 'var(--radius-sm)',
     fontSize: '1rem',
-    transition: 'all 0.3s ease',
+    transition: 'all var(--t-fast)',
     outline: 'none',
-    backgroundColor: 'rgba(0, 0, 0, 0.5)',
-    color: '#00ff41',
-    fontFamily: 'monospace'
+    backgroundColor: 'var(--surface-1)',
+    color: 'var(--text)',
+    fontFamily: 'var(--font-mono)',
   },
   textarea: {
     width: '100%',
     padding: '12px 16px 12px 22px',
-    border: '1px solid rgba(0, 255, 65, 0.2)',
-    borderRadius: '2px',
+    border: '1px solid var(--border)',
+    borderRadius: 'var(--radius-sm)',
     fontSize: '1rem',
     resize: 'vertical',
-    fontFamily: 'monospace',
-    transition: 'all 0.3s ease',
+    fontFamily: 'var(--font-mono)',
+    transition: 'all var(--t-fast)',
     outline: 'none',
-    backgroundColor: 'rgba(0, 0, 0, 0.5)',
-    color: '#00ff41',
+    backgroundColor: 'var(--surface-1)',
+    color: 'var(--text)',
     minHeight: '260px',
     lineHeight: '1.8',
     boxSizing: 'border-box',
     overflowX: 'auto',
     whiteSpace: 'pre',
     wordWrap: 'normal',
-    tabSize: 2
+    tabSize: 2,
   },
   preview: {
     padding: '12px 16px 12px 22px',
-    border: '1px solid rgba(0, 255, 65, 0.2)',
-    borderRadius: '2px',
-    backgroundColor: 'rgba(0, 0, 0, 0.5)',
-    color: '#00ff41',
+    border: '1px solid var(--border)',
+    borderRadius: 'var(--radius-sm)',
+    backgroundColor: 'var(--surface-1)',
+    color: 'var(--text)',
     minHeight: '260px',
     lineHeight: '1.8',
-    fontFamily: 'monospace',
+    fontFamily: 'var(--font-mono)',
     overflow: 'auto',
-    boxSizing: 'border-box'
+    boxSizing: 'border-box',
   },
   toolbar: {
     display: 'flex',
     gap: '4px',
     padding: '8px',
     marginBottom: '8px',
-    border: '1px solid rgba(0, 255, 65, 0.1)',
-    borderRadius: '2px',
-    background: 'rgba(0, 0, 0, 0.3)',
-    flexWrap: 'wrap'
+    border: '1px solid var(--border)',
+    borderRadius: 'var(--radius-sm)',
+    background: 'var(--surface-3)',
+    flexWrap: 'wrap',
   },
   toolbarButton: {
     background: 'none',
-    border: '1px solid rgba(0, 255, 65, 0.1)',
-    color: '#00ff41',
+    border: '1px solid var(--border)',
+    color: 'var(--accent)',
     padding: '6px 10px',
-    borderRadius: '2px',
+    borderRadius: 'var(--radius-sm)',
     cursor: 'pointer',
-    transition: 'all 0.3s ease',
+    transition: 'all var(--t-fast)',
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'center',
     minWidth: '32px',
-    height: '32px'
+    height: '32px',
   },
-  toolbarDivider: { width: '1px', background: 'rgba(0, 255, 65, 0.1)', margin: '0 4px' },
+  toolbarDivider: { width: '1px', background: 'var(--border)', margin: '0 4px' },
   editorHints: {
     display: 'flex',
     gap: '16px',
     marginTop: '8px',
     fontSize: '0.7rem',
-    color: '#00ff41',
-    opacity: 0.3,
-    fontFamily: 'monospace',
-    flexWrap: 'wrap'
+    color: 'var(--text-faint)',
+    fontFamily: 'var(--font-mono)',
+    flexWrap: 'wrap',
+  },
+  hintText: {
+    fontSize: '0.7rem',
+    color: 'var(--text-faint)',
+    marginTop: '4px',
+    fontFamily: 'var(--font-mono)',
+    letterSpacing: '0.5px',
   },
   passwordInputWrapper: { position: 'relative', width: '100%' },
   passwordInput: {
     width: '100%',
     padding: '10px 14px',
     paddingRight: '45px',
-    border: '1px solid rgba(0, 255, 65, 0.2)',
-    borderRadius: '2px',
+    border: '1px solid var(--border)',
+    borderRadius: 'var(--radius-sm)',
     fontSize: '1rem',
-    transition: 'all 0.3s ease',
+    transition: 'all var(--t-fast)',
     outline: 'none',
-    backgroundColor: 'rgba(0, 0, 0, 0.5)',
-    color: '#00ff41',
-    fontFamily: 'monospace'
+    backgroundColor: 'var(--surface-1)',
+    color: 'var(--text)',
+    fontFamily: 'var(--font-mono)',
   },
   eyeButton: {
     position: 'absolute',
@@ -1344,49 +1248,81 @@ const styles = {
     border: 'none',
     cursor: 'pointer',
     padding: '5px',
-    color: '#00ff41',
-    opacity: 0.6
+    color: 'var(--accent)',
+    opacity: 0.6,
   },
-  charCount: { textAlign: 'right', fontSize: '0.7rem', color: '#00ff41', opacity: 0.4, marginTop: '4px', fontFamily: 'monospace' },
-  validationMessage: { fontSize: '0.75rem', marginTop: '4px', fontWeight: '600', fontFamily: 'monospace' },
-  actions: { display: 'flex', gap: '10px', marginTop: '20px', flexWrap: 'wrap' },
+  charCount: {
+    textAlign: 'right',
+    fontSize: '0.7rem',
+    color: 'var(--text-faint)',
+    marginTop: '4px',
+    fontFamily: 'var(--font-mono)',
+  },
+  validationMessage: {
+    fontSize: '0.75rem',
+    marginTop: '4px',
+    fontWeight: '600',
+    fontFamily: 'var(--font-mono)',
+  },
+  actions: {
+    display: 'flex',
+    gap: '10px',
+    marginTop: '20px',
+    flexWrap: 'wrap',
+  },
   saveButton: {
-    backgroundColor: 'rgba(0, 255, 65, 0.1)',
-    color: '#00ff41',
+    backgroundColor: 'var(--surface-2)',
+    color: 'var(--accent)',
     padding: 'clamp(10px, 2vw, 12px) clamp(16px, 3vw, 24px)',
-    border: '1px solid #00ff41',
-    borderRadius: '2px',
+    border: '1px solid var(--accent)',
+    borderRadius: 'var(--radius-sm)',
     fontSize: 'clamp(0.8rem, 1.5vw, 0.9rem)',
     fontWeight: '700',
     cursor: 'pointer',
     flex: 1,
     minWidth: '120px',
-    transition: 'all 0.3s ease',
-    fontFamily: 'monospace',
-    letterSpacing: '1px'
+    transition: 'all var(--t-fast)',
+    fontFamily: 'var(--font-mono)',
+    letterSpacing: '1px',
+    display: 'inline-flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  secondaryButton: {
+    backgroundColor: 'transparent',
+    color: 'var(--accent)',
+    padding: 'clamp(10px, 2vw, 12px) clamp(16px, 3vw, 24px)',
+    border: '1px dashed var(--border-strong)',
+    borderRadius: 'var(--radius-sm)',
+    fontSize: 'clamp(0.75rem, 1.4vw, 0.85rem)',
+    cursor: 'pointer',
+    minWidth: '100px',
+    transition: 'all var(--t-fast)',
+    fontFamily: 'var(--font-mono)',
+    letterSpacing: '1px',
   },
   cancelButton: {
-    backgroundColor: 'rgba(255, 255, 255, 0.05)',
-    color: '#666',
+    backgroundColor: 'rgba(127, 127, 127, 0.05)',
+    color: 'var(--text-dim)',
     padding: 'clamp(10px, 2vw, 12px) clamp(16px, 3vw, 24px)',
-    border: '1px solid #333',
-    borderRadius: '2px',
+    border: '1px solid var(--border)',
+    borderRadius: 'var(--radius-sm)',
     fontSize: 'clamp(0.8rem, 1.5vw, 0.9rem)',
     cursor: 'pointer',
     flex: 1,
     minWidth: '120px',
-    transition: 'all 0.3s ease',
-    fontFamily: 'monospace'
+    transition: 'all var(--t-fast)',
+    fontFamily: 'var(--font-mono)',
   },
   error: {
-    backgroundColor: 'rgba(255, 0, 68, 0.1)',
-    color: '#ff0044',
+    backgroundColor: 'var(--danger-soft)',
+    color: 'var(--danger)',
     padding: '10px 15px',
-    borderRadius: '2px',
+    borderRadius: 'var(--radius-sm)',
     marginBottom: '15px',
-    border: '1px solid #ff0044',
+    border: '1px solid var(--danger)',
     fontSize: 'clamp(0.8rem, 1.2vw, 0.9rem)',
-    fontFamily: 'monospace'
+    fontFamily: 'var(--font-mono)',
   },
   imageModalOverlay: {
     position: 'fixed',
@@ -1397,85 +1333,95 @@ const styles = {
     alignItems: 'center',
     justifyContent: 'center',
     zIndex: 10000,
-    padding: '16px'
+    padding: '16px',
   },
   imageModal: {
-    backgroundColor: '#0a0a0a',
-    border: '1px solid #00ff41',
-    borderRadius: '4px',
+    backgroundColor: 'var(--bg-elev)',
+    border: '1px solid var(--accent)',
+    borderRadius: 'var(--radius-md)',
     padding: '30px',
     maxWidth: '500px',
     width: '100%',
-    boxShadow: '0 0 40px rgba(0, 255, 65, 0.2)'
+    boxShadow: 'var(--shadow-2)',
   },
-  imageModalHeader: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' },
-  imageModalTitle: { color: '#00ff41', fontSize: '1rem', fontFamily: 'monospace', margin: 0 },
+  imageModalHeader: {
+    display: 'flex',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: '16px',
+  },
+  imageModalTitle: {
+    color: 'var(--accent)',
+    fontSize: '1rem',
+    fontFamily: 'var(--font-mono)',
+    margin: 0,
+  },
   imageModalClose: {
     background: 'none',
-    border: '1px solid rgba(0, 255, 65, 0.2)',
-    color: '#00ff41',
+    border: '1px solid var(--border)',
+    color: 'var(--accent)',
     cursor: 'pointer',
     padding: '4px 8px',
-    borderRadius: '2px'
+    borderRadius: 'var(--radius-sm)',
   },
   imageModalHint: {
-    backgroundColor: 'rgba(0, 255, 65, 0.05)',
+    backgroundColor: 'var(--surface-2)',
     padding: '12px',
-    borderRadius: '2px',
+    borderRadius: 'var(--radius-sm)',
     marginBottom: '16px',
-    border: '1px solid rgba(0, 255, 65, 0.1)',
-    color: '#00ff41',
+    border: '1px solid var(--border)',
+    color: 'var(--text-dim)',
     fontSize: '0.8rem',
-    fontFamily: 'monospace'
+    fontFamily: 'var(--font-mono)',
   },
   imageModalInput: {
     width: '100%',
     padding: '10px 14px',
-    border: '1px solid rgba(0, 255, 65, 0.2)',
-    borderRadius: '2px',
-    backgroundColor: 'rgba(0, 0, 0, 0.5)',
-    color: '#00ff41',
-    fontFamily: 'monospace',
+    border: '1px solid var(--border)',
+    borderRadius: 'var(--radius-sm)',
+    backgroundColor: 'var(--surface-1)',
+    color: 'var(--text)',
+    fontFamily: 'var(--font-mono)',
     marginBottom: '16px',
-    outline: 'none'
+    outline: 'none',
   },
   imageModalActions: { display: 'flex', gap: '10px', flexWrap: 'wrap' },
   imageModalSubmit: {
-    backgroundColor: 'rgba(0, 255, 65, 0.1)',
-    color: '#00ff41',
+    backgroundColor: 'var(--accent-soft)',
+    color: 'var(--accent)',
     padding: '10px 20px',
-    border: '1px solid #00ff41',
-    borderRadius: '2px',
+    border: '1px solid var(--accent)',
+    borderRadius: 'var(--radius-sm)',
     cursor: 'pointer',
-    fontFamily: 'monospace',
+    fontFamily: 'var(--font-mono)',
     flex: 1,
-    minWidth: '80px'
+    minWidth: '80px',
   },
   imageModalUpload: {
-    backgroundColor: 'rgba(255, 165, 0, 0.1)',
-    color: '#ffa500',
+    backgroundColor: 'var(--warning-soft)',
+    color: 'var(--warning)',
     padding: '10px 20px',
-    border: '1px solid #ffa500',
-    borderRadius: '2px',
+    border: '1px solid var(--warning)',
+    borderRadius: 'var(--radius-sm)',
     cursor: 'pointer',
-    fontFamily: 'monospace',
+    fontFamily: 'var(--font-mono)',
     flex: 1,
     minWidth: '80px',
     display: 'flex',
     alignItems: 'center',
-    justifyContent: 'center'
+    justifyContent: 'center',
   },
   imageModalCancel: {
-    backgroundColor: 'rgba(255, 255, 255, 0.05)',
-    color: '#666',
+    backgroundColor: 'rgba(127, 127, 127, 0.05)',
+    color: 'var(--text-dim)',
     padding: '10px 20px',
-    border: '1px solid #333',
-    borderRadius: '2px',
+    border: '1px solid var(--border)',
+    borderRadius: 'var(--radius-sm)',
     cursor: 'pointer',
-    fontFamily: 'monospace',
+    fontFamily: 'var(--font-mono)',
     flex: 1,
-    minWidth: '80px'
-  }
+    minWidth: '80px',
+  },
 };
 
 export default NoteEditor;
