@@ -3,7 +3,7 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { 
   Eye, EyeOff, Image, Link, Bold, Italic, 
   List, ListOrdered, Code, Quote, Heading1, Heading2, Heading3, 
-  Upload, X, AlignLeft, AlignCenter, AlignRight, CheckSquare
+  Upload, X, CheckSquare, Eye as EyeIcon, Pencil
 } from 'lucide-react';
 
 function NoteEditor({ note, preVerifiedPassword = '', onSave, onCancel }) {
@@ -155,6 +155,7 @@ function NoteEditor({ note, preVerifiedPassword = '', onSave, onCancel }) {
       setTimeout(() => {
         textarea.focus();
         textarea.selectionStart = textarea.selectionEnd = start + prefix.length;
+        textarea.scrollLeft = 0;
       }, 0);
       return;
     }
@@ -194,113 +195,107 @@ function NoteEditor({ note, preVerifiedPassword = '', onSave, onCancel }) {
       }
       const currentLine = lines[currentLineIndex] || '';
       
-      // Check for bullet list
-      const bulletMatch = currentLine.match(/^(\s*)([-*•])\s+(.+)$/);
-      if (bulletMatch) {
-        e.preventDefault();
-        const indent = bulletMatch[1];
-        const bullet = bulletMatch[2];
-        const text = bulletMatch[3];
-        
-        // If line is empty or just whitespace, remove the bullet
-        if (!text.trim()) {
-          // Remove the bullet line
-          const newLines = [...lines];
-          newLines.splice(currentLineIndex, 1);
-          setContent(newLines.join('\n'));
-          setTimeout(() => {
-            textarea.focus();
-            // Position cursor at the end of previous line or start
-            const prevLine = newLines[currentLineIndex - 1] || '';
-            const cursorPos = content.split('\n').slice(0, currentLineIndex).join('\n').length + 
-                            (currentLineIndex > 0 ? 1 : 0) + prevLine.length;
-            textarea.selectionStart = textarea.selectionEnd = cursorPos;
-          }, 0);
-          return;
-        }
-        
-        // Continue the list
-        const newLine = indent + bullet + ' ';
-        const newContent = content.substring(0, start) + '\n' + newLine + content.substring(end);
-        setContent(newContent);
-        setTimeout(() => {
-          textarea.focus();
-          textarea.selectionStart = textarea.selectionEnd = start + 1 + newLine.length;
-        }, 0);
-        return;
-      }
-      
-      // Check for numbered list
-      const numberedMatch = currentLine.match(/^(\s*)(\d+)\.\s+(.+)$/);
-      if (numberedMatch) {
-        e.preventDefault();
-        const indent = numberedMatch[1];
-        const num = parseInt(numberedMatch[2]);
-        const text = numberedMatch[3];
-        
-        if (!text.trim()) {
-          // Remove the numbered line
-          const newLines = [...lines];
-          newLines.splice(currentLineIndex, 1);
-          // Renumber subsequent lines
-          for (let i = currentLineIndex; i < newLines.length; i++) {
-            const line = newLines[i];
-            const match = line.match(/^(\s*)(\d+)\.\s+(.+)$/);
-            if (match) {
-              const newNum = parseInt(match[2]) - 1;
-              newLines[i] = match[1] + newNum + '. ' + match[3];
-            }
-          }
-          setContent(newLines.join('\n'));
-          setTimeout(() => {
-            textarea.focus();
-            const prevLine = newLines[currentLineIndex - 1] || '';
-            const cursorPos = content.split('\n').slice(0, currentLineIndex).join('\n').length + 
-                            (currentLineIndex > 0 ? 1 : 0) + prevLine.length;
-            textarea.selectionStart = textarea.selectionEnd = cursorPos;
-          }, 0);
-          return;
-        }
-        
-        const nextNum = num + 1;
-        const newLine = indent + nextNum + '. ';
-        const newContent = content.substring(0, start) + '\n' + newLine + content.substring(end);
-        setContent(newContent);
-        setTimeout(() => {
-          textarea.focus();
-          textarea.selectionStart = textarea.selectionEnd = start + 1 + newLine.length;
-        }, 0);
-        return;
-      }
-      
-      // Check for task list (checkbox)
-      const taskMatch = currentLine.match(/^(\s*)- \[([ x])\]\s+(.+)$/);
+      // Helper: cursor position at end of the line above currentLineIndex
+      const cursorAtEndOfPrevLine = (newLines, idx) => {
+        let pos = 0;
+        for (let i = 0; i < idx - 1; i++) pos += newLines[i].length + 1;
+        if (idx > 0) pos += newLines[idx - 1].length;
+        return pos;
+      };
+
+      // Check for task list (checkbox) FIRST — must beat bullet-list regex
+      const taskMatch = currentLine.match(/^(\s*)- \[([ xX])\]\s*(.*)$/);
       if (taskMatch) {
         e.preventDefault();
         const indent = taskMatch[1];
-        const checked = taskMatch[2];
         const text = taskMatch[3];
-        
+
+        // Empty task item → terminate the list
         if (!text.trim()) {
           const newLines = [...lines];
           newLines.splice(currentLineIndex, 1);
           setContent(newLines.join('\n'));
           setTimeout(() => {
             textarea.focus();
-            const prevLine = newLines[currentLineIndex - 1] || '';
-            const cursorPos = content.split('\n').slice(0, currentLineIndex).join('\n').length + 
-                            (currentLineIndex > 0 ? 1 : 0) + prevLine.length;
-            textarea.selectionStart = textarea.selectionEnd = cursorPos;
+            const pos = cursorAtEndOfPrevLine(newLines, currentLineIndex);
+            textarea.selectionStart = textarea.selectionEnd = pos;
           }, 0);
           return;
         }
-        
+
         const newLine = indent + '- [ ] ';
         const newContent = content.substring(0, start) + '\n' + newLine + content.substring(end);
         setContent(newContent);
         setTimeout(() => {
           textarea.focus();
           textarea.selectionStart = textarea.selectionEnd = start + 1 + newLine.length;
+          textarea.scrollLeft = 0;
+        }, 0);
+        return;
+      }
+
+      // Check for numbered list
+      const numberedMatch = currentLine.match(/^(\s*)(\d+)\.\s*(.*)$/);
+      if (numberedMatch) {
+        e.preventDefault();
+        const indent = numberedMatch[1];
+        const num = parseInt(numberedMatch[2]);
+        const text = numberedMatch[3];
+
+        if (!text.trim()) {
+          const newLines = [...lines];
+          newLines.splice(currentLineIndex, 1);
+          for (let i = currentLineIndex; i < newLines.length; i++) {
+            const m = newLines[i].match(/^(\s*)(\d+)\.\s*(.*)$/);
+            if (m) newLines[i] = m[1] + (parseInt(m[2]) - 1) + '. ' + m[3];
+          }
+          setContent(newLines.join('\n'));
+          setTimeout(() => {
+            textarea.focus();
+            const pos = cursorAtEndOfPrevLine(newLines, currentLineIndex);
+            textarea.selectionStart = textarea.selectionEnd = pos;
+          }, 0);
+          return;
+        }
+
+        const newLine = indent + (num + 1) + '. ';
+        const newContent = content.substring(0, start) + '\n' + newLine + content.substring(end);
+        setContent(newContent);
+        setTimeout(() => {
+          textarea.focus();
+          textarea.selectionStart = textarea.selectionEnd = start + 1 + newLine.length;
+          textarea.scrollLeft = 0;
+        }, 0);
+        return;
+      }
+
+      // Check for bullet list (last — after task list)
+      const bulletMatch = currentLine.match(/^(\s*)([-*•])\s*(.*)$/);
+      if (bulletMatch) {
+        e.preventDefault();
+        const indent = bulletMatch[1];
+        const bullet = bulletMatch[2];
+        const text = bulletMatch[3];
+
+        if (!text.trim()) {
+          const newLines = [...lines];
+          newLines.splice(currentLineIndex, 1);
+          setContent(newLines.join('\n'));
+          setTimeout(() => {
+            textarea.focus();
+            const pos = cursorAtEndOfPrevLine(newLines, currentLineIndex);
+            textarea.selectionStart = textarea.selectionEnd = pos;
+          }, 0);
+          return;
+        }
+
+        const newLine = indent + bullet + ' ';
+        const newContent = content.substring(0, start) + '\n' + newLine + content.substring(end);
+        setContent(newContent);
+        setTimeout(() => {
+          textarea.focus();
+          textarea.selectionStart = textarea.selectionEnd = start + 1 + newLine.length;
+          textarea.scrollLeft = 0;
         }, 0);
         return;
       }
@@ -439,7 +434,8 @@ function NoteEditor({ note, preVerifiedPassword = '', onSave, onCancel }) {
       const reader = new FileReader();
       reader.onload = (e) => {
         const dataUrl = e.target.result;
-        const imgTag = `<img src="${dataUrl}" alt="Uploaded image" style="max-width: 100%; border-radius: 4px; margin: 8px 0; display: block;" />`;
+        // Insert a plain <img> tag — renderMarkdown() will sanitize + style it
+        const imgTag = `<img src="${dataUrl}" alt="Uploaded image" />`;
         insertText(imgTag);
         resolve();
       };
@@ -450,7 +446,7 @@ function NoteEditor({ note, preVerifiedPassword = '', onSave, onCancel }) {
 
   const handleInsertImage = () => {
     if (imageUrl.trim()) {
-      const imgTag = `<img src="${imageUrl}" alt="Note image" style="max-width: 100%; border-radius: 4px; margin: 8px 0; display: block;" />`;
+      const imgTag = `<img src="${imageUrl.trim()}" alt="Note image" />`;
       insertText(imgTag);
       setImageUrl('');
       setShowImageModal(false);
@@ -460,63 +456,95 @@ function NoteEditor({ note, preVerifiedPassword = '', onSave, onCancel }) {
   // ---------- Render Markdown to HTML ----------
   const renderMarkdown = (text) => {
     if (!text) return null;
-    
-    // Escape HTML
-    let html = text
+
+    const placeholders = [];
+    const stash = (html) => {
+      const key = `\u0000PH${placeholders.length}\u0000`;
+      placeholders.push(html);
+      return key;
+    };
+
+    let src = text;
+
+    // 1) Protect fenced code blocks first
+    src = src.replace(/```([\s\S]*?)```/g, (_, code) =>
+      stash(`<pre><code>${code.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')}</code></pre>`)
+    );
+
+    // 2) Protect inline code
+    src = src.replace(/`([^`]+)`/g, (_, code) =>
+      stash(`<code>${code.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')}</code>`)
+    );
+
+    // 3) Protect raw <img ...> tags (also handle data URLs) BEFORE escaping
+    src = src.replace(/<img\b[^>]*>/gi, (tag) => {
+      const srcMatch = tag.match(/src\s*=\s*"([^"]*)"/i) || tag.match(/src\s*=\s*'([^']*)'/i);
+      if (!srcMatch) return tag;
+      const url = srcMatch[1];
+      const safe = /^(https?:|data:image\/|mailto:|\/)/i.test(url.trim()) ? url.trim() : '';
+      if (!safe) return '';
+      return stash(
+        `<img src="${safe}" alt="Note image" style="max-width:100%;border-radius:4px;margin:8px 0;display:block;" />`
+      );
+    });
+
+    // 4) Escape remaining HTML
+    src = src
       .replace(/&/g, '&amp;')
       .replace(/</g, '&lt;')
       .replace(/>/g, '&gt;');
-    
-    // Headers
-    html = html.replace(/^### (.+)$/gm, '<h3>$1</h3>');
-    html = html.replace(/^## (.+)$/gm, '<h2>$1</h2>');
-    html = html.replace(/^# (.+)$/gm, '<h1>$1</h1>');
-    
-    // Bold and Italic
-    html = html.replace(/\*\*\*(.+?)\*\*\*/g, '<strong><em>$1</em></strong>');
-    html = html.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
-    html = html.replace(/\*(.+?)\*/g, '<em>$1</em>');
-    html = html.replace(/__(.+?)__/g, '<u>$1</u>');
-    
-    // Task lists
-    html = html.replace(/^- \[x\] (.+)$/gm, '<div class="task-item checked"><input type="checkbox" checked disabled><span>$1</span></div>');
-    html = html.replace(/^- \[ \] (.+)$/gm, '<div class="task-item"><input type="checkbox" disabled><span>$1</span></div>');
-    
-    // Bullet lists
-    html = html.replace(/^[-*•] (.+)$/gm, '<li>$1</li>');
-    html = html.replace(/(<li>.*<\/li>)/s, '<ul>$1</ul>');
-    
-    // Numbered lists
-    html = html.replace(/^\d+\. (.+)$/gm, '<li>$1</li>');
-    html = html.replace(/(<li>.*<\/li>)/s, (match) => {
-      // Only wrap if it's numbered list items
-      return `<ol>${match}</ol>`;
+
+    // 5) Blockquotes (before headers, so '>' isn't confused)
+    src = src.replace(/^&gt;\s?(.*)$/gm, '<blockquote>$1</blockquote>');
+
+    // 6) Headers
+    src = src.replace(/^### (.+)$/gm, '<h3>$1</h3>');
+    src = src.replace(/^## (.+)$/gm, '<h2>$1</h2>');
+    src = src.replace(/^# (.+)$/gm, '<h1>$1</h1>');
+
+    // 7) Task list items
+    src = src.replace(/^- \[[xX]\] (.*)$/gm, '<div class="task-item checked"><input type="checkbox" checked disabled><span>$1</span></div>');
+    src = src.replace(/^- \[ \] (.*)$/gm, '<div class="task-item"><input type="checkbox" disabled><span>$1</span></div>');
+
+    // 8) Bullet lists — group consecutive lines into a single <ul>
+    src = src.replace(/(?:^[-*•] .*(?:\n|$))+/gm, (block) => {
+      const items = block
+        .trimEnd()
+        .split('\n')
+        .map(line => `<li>${line.replace(/^[-*•] /, '')}</li>`)
+        .join('');
+      return `<ul>${items}</ul>\n`;
     });
-    
-    // Code blocks
-    html = html.replace(/```([\s\S]*?)```/g, '<pre><code>$1</code></pre>');
-    
-    // Inline code
-    html = html.replace(/`([^`]+)`/g, '<code>$1</code>');
-    
-    // Blockquotes
-    html = html.replace(/^> (.+)$/gm, '<blockquote>$1</blockquote>');
-    
-    // Images
-    html = html.replace(/<img src="([^"]+)"[^>]*>/g, (match, src) => {
-      return `<img src="${src}" alt="Note image" style="max-width:100%;border-radius:4px;margin:8px 0;display:block;" />`;
+
+    // 9) Numbered lists — group consecutive lines into a single <ol>
+    src = src.replace(/(?:^\d+\. .*(?:\n|$))+/gm, (block) => {
+      const items = block
+        .trimEnd()
+        .split('\n')
+        .map(line => `<li>${line.replace(/^\d+\. /, '')}</li>`)
+        .join('');
+      return `<ol>${items}</ol>\n`;
     });
-    
-    // Links — only allow http(s) and mailto
-    html = html.replace(/\[([^\]]+)\]\(([^)]+)\)/g, (match, text, url) => {
+
+    // 10) Bold / Italic / Underline
+    src = src.replace(/\*\*\*(.+?)\*\*\*/g, '<strong><em>$1</em></strong>');
+    src = src.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
+    src = src.replace(/(^|[^*])\*(?!\s)(.+?)(?<!\s)\*(?!\*)/g, '$1<em>$2</em>');
+    src = src.replace(/__(.+?)__/g, '<u>$1</u>');
+
+    // 11) Links — only allow http(s) and mailto
+    src = src.replace(/\[([^\]]+)\]\(([^)]+)\)/g, (_, label, url) => {
       const safe = /^(https?:|mailto:)/i.test(url.trim()) ? url.trim() : '#';
-      return `<a href="${safe}" target="_blank" rel="noopener noreferrer">${text}</a>`;
+      return `<a href="${safe}" target="_blank" rel="noopener noreferrer">${label}</a>`;
     });
-    
-    // Line breaks
-    html = html.replace(/\n/g, '<br />');
-    
-    return html;
+
+    // 12) Line breaks on remaining text
+    src = src.replace(/\n/g, '<br />');
+
+    // 13) Restore placeholders
+    src = src.replace(/\u0000PH(\d+)\u0000/g, (_, i) => placeholders[Number(i)] || '');
+
+    return src;
   };
 
   const handleSubmit = async (e) => {
@@ -596,8 +624,19 @@ function NoteEditor({ note, preVerifiedPassword = '', onSave, onCancel }) {
             type="button"
             onClick={() => setIsPreviewMode(!isPreviewMode)}
             style={styles.previewToggle}
+            title={isPreviewMode ? 'Switch to edit mode' : 'Switch to preview mode'}
           >
-            {isPreviewMode ? '✏️ EDIT' : '👁️ PREVIEW'}
+            {isPreviewMode ? (
+              <>
+                <Pencil size={14} style={{ marginRight: '6px' }} />
+                EDIT
+              </>
+            ) : (
+              <>
+                <EyeIcon size={14} style={{ marginRight: '6px' }} />
+                PREVIEW
+              </>
+            )}
           </button>
         </div>
         
@@ -903,7 +942,12 @@ const styles = {
     cursor: 'pointer',
     fontSize: '0.8rem',
     fontFamily: 'monospace',
-    transition: 'all 0.3s ease'
+    transition: 'all 0.3s ease',
+    display: 'inline-flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: '2px',
+    letterSpacing: '1px'
   },
   formGroup: {
     marginBottom: '20px'
@@ -932,7 +976,7 @@ const styles = {
   },
   textarea: {
     width: '100%',
-    padding: '10px 14px',
+    padding: '12px 16px 12px 22px',
     border: '1px solid rgba(0, 255, 65, 0.2)',
     borderRadius: '2px',
     fontSize: '1rem',
@@ -943,10 +987,15 @@ const styles = {
     backgroundColor: 'rgba(0, 0, 0, 0.5)',
     color: '#00ff41',
     minHeight: '200px',
-    lineHeight: '1.8'
+    lineHeight: '1.8',
+    boxSizing: 'border-box',
+    overflowX: 'auto',
+    whiteSpace: 'pre',
+    wordWrap: 'normal',
+    tabSize: 2
   },
   preview: {
-    padding: '10px 14px',
+    padding: '12px 16px 12px 22px',
     border: '1px solid rgba(0, 255, 65, 0.2)',
     borderRadius: '2px',
     backgroundColor: 'rgba(0, 0, 0, 0.5)',
@@ -955,6 +1004,7 @@ const styles = {
     lineHeight: '1.8',
     fontFamily: 'monospace',
     overflow: 'auto',
+    boxSizing: 'border-box',
     '& h1': { fontSize: '2rem', margin: '0.5rem 0', borderBottom: '1px solid rgba(0,255,65,0.1)' },
     '& h2': { fontSize: '1.5rem', margin: '0.5rem 0' },
     '& h3': { fontSize: '1.2rem', margin: '0.5rem 0' },
