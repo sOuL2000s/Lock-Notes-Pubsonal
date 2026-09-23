@@ -564,7 +564,7 @@ function NoteViewer({ note, preVerifiedPassword = '', onEdit, onDelete, onBack }
                   onClick={handleExportPdf}
                   disabled={!!exportStatus && exportStatus !== 'DONE'}
                   style={styles.exportButtonPrimary}
-                  title="Download as PDF"
+                  title="Download as PDF via browser print dialog"
                 >
                   <FileType size={16} style={{ marginRight: '6px' }} />
                   {exportStatus && exportStatus !== 'DONE' ? exportStatus : 'PDF'}
