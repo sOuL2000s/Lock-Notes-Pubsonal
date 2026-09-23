@@ -3,9 +3,13 @@ import express from 'express';
 import { connectToDatabase } from './_lib/mongodb.js';
 import noteHandler from './note.js';
 import notesHandler from './notes.js';
+import versionsHandler from './note/versions.js';
+import restoreHandler from './note/restore.js';
+import noteShareHandler from './note/share.js';
+import shareHandler from './share.js';
 
 const app = express();
-const PORT = 3000;
+const PORT = process.env.PORT || 3000;
 
 app.use(express.json({ limit: '10mb' }));
 
@@ -14,112 +18,69 @@ app.use((req, res, next) => {
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
-  
+
   if (req.method === 'OPTIONS') {
     return res.sendStatus(200);
   }
   next();
 });
 
-// Helper function to convert Express req/res to Vercel-like format
+/**
+ * Wrap a Vercel-style (req, res) handler so it works inside Express.
+ *
+ * The Vercel handler expects:
+ *   req.method, req.query, req.body, req.headers, req.url
+ *   res.status(code).json(data) / res.send(data) / res.end()
+ *   res.setHeader(key, value)
+ *
+ * Express already provides most of these on res. The main gaps are:
+ *   - res.status() returns `this` in Express, so chaining works.
+ *   - res.json() / res.send() / res.end() all work.
+ *   - res.setHeader() works.
+ *
+ * So we mostly just need a thin adapter for req (Express req already
+ * has .method, .query, .body, .headers, .url) and we need to make sure
+ * that if a handler returns without sending, we don't hang.
+ *
+ * The previous version had a bug: it created a `vercelRes` shim and
+ * monkey-patched `res.setHeader`, but the shim's `.send`/`.end` set
+ * `_sent` on the shim while the outer wrapper checked `vercelRes._sent`
+ * — which is fine — but the shim's `.json` called `res.status(...).json(...)`
+ * which could double-send if the handler also called `res.end()`. It
+ * also didn't forward `res.getHeader`. This version is simpler and safer.
+ */
 function createVercelHandler(handler) {
   return async (req, res) => {
     try {
-      // Create a Vercel-compatible request object
-      const vercelReq = {
-        method: req.method,
-        query: req.query,
-        body: req.body,
-        headers: req.headers,
-        url: req.url,
-        // Add any other properties the handler might expect
-        setHeader: (key, value) => {
-          // This is a dummy - we handle headers in the Express middleware
-        }
-      };
+      // Express req already has: method, query, body, headers, url.
+      // Vercel handlers sometimes read `req.query` as a plain object and
+      // sometimes as a parsed object — Express gives us the parsed object,
+      // which is what our handlers expect.
+      await handler(req, res);
 
-      // Create a Vercel-compatible response object that wraps Express res
-      const vercelRes = {
-        statusCode: 200,
-        headers: {},
-        _sent: false,
-        
-        status: function(code) {
-          this.statusCode = code;
-          return this;
-        },
-        
-        setHeader: function(key, value) {
-          // Actually set the header on the Express response
-          res.setHeader(key, value);
-          this.headers[key] = value;
-          return this;
-        },
-        
-        json: function(data) {
-          if (this._sent) return this;
-          this._sent = true;
-          res.status(this.statusCode).json(data);
-          return this;
-        },
-        
-        send: function(data) {
-          if (this._sent) return this;
-          this._sent = true;
-          res.status(this.statusCode).send(data);
-          return this;
-        },
-        
-        end: function(data) {
-          if (this._sent) return this;
-          this._sent = true;
-          if (data) {
-            res.status(this.statusCode).send(data);
-          } else {
-            res.status(this.statusCode).end();
-          }
-          return this;
-        },
-        
-        // Handle the direct property access that note.js uses
-        getHeader: function(key) {
-          return res.getHeader(key);
-        },
-        
-        // For the notes.js handler which uses res.setHeader directly
-        headersSent: false,
-        
-        // Also support direct property assignment (though not ideal)
-        _headers: {}
-      };
-
-      // Make res.setHeader work both ways
-      const originalSetHeader = res.setHeader.bind(res);
-      res.setHeader = function(key, value) {
-        originalSetHeader(key, value);
-        vercelRes._headers[key] = value;
-        return res;
-      };
-
-      // Call the handler
-      await handler(vercelReq, vercelRes);
-      
-      // If the handler didn't send anything, send a 404
-      if (!vercelRes._sent) {
+      // If the handler didn't send anything, return 404.
+      if (!res.headersSent) {
         res.status(404).json({ error: 'Not found' });
       }
     } catch (error) {
       console.error('Handler error:', error);
       if (!res.headersSent) {
-        res.status(500).json({ error: 'Internal server error', message: error.message });
+        res.status(500).json({
+          error: 'Internal server error',
+          message: error.message,
+        });
       }
     }
   };
 }
 
-// Routes
-app.all('/api/notes', createVercelHandler(notesHandler));
+// Routes — order matters: more specific first.
+app.all('/api/note/versions', createVercelHandler(versionsHandler));
+app.all('/api/note/restore', createVercelHandler(restoreHandler));
+app.all('/api/note/share', createVercelHandler(noteShareHandler));
+app.all('/api/share', createVercelHandler(shareHandler));
 app.all('/api/note', createVercelHandler(noteHandler));
+app.all('/api/notes', createVercelHandler(notesHandler));
 
 // Health check endpoint
 app.get('/api/health', (req, res) => {
@@ -128,13 +89,17 @@ app.get('/api/health', (req, res) => {
 
 // Root endpoint
 app.get('/', (req, res) => {
-  res.json({ 
+  res.json({
     message: 'Lock-Notes API is running',
     endpoints: {
       notes: '/api/notes',
       note: '/api/note?id=...',
-      health: '/api/health'
-    }
+      versions: '/api/note/versions?id=...',
+      restore: '/api/note/restore?id=...',
+      share: '/api/note/share?id=...',
+      publicShare: '/api/share?token=...',
+      health: '/api/health',
+    },
   });
 });
 
@@ -148,10 +113,10 @@ async function startServer() {
       console.error('   MONGODB_DB=note_app');
       process.exit(1);
     }
-    
+
     await connectToDatabase();
     console.log('✅ Connected to MongoDB');
-    
+
     app.listen(PORT, () => {
       console.log(`✅ API server running at http://localhost:${PORT}`);
       console.log(`📝 Notes endpoint: http://localhost:${PORT}/api/notes`);

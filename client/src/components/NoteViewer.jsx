@@ -1,12 +1,14 @@
 // client/src/components/NoteViewer.jsx
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import PasswordModal from './PasswordModal';
 import { api } from '../services/api';
 import { renderMarkdown } from '../lib/markdown';
 import {
   Edit, Trash2, Lock, Unlock, Calendar, ArrowLeft,
   History, Share2, Copy, Check, X, RotateCcw, Link2Off,
+  Download, FileText, FileCode, FileType,
 } from 'lucide-react';
+import { exportAsMarkdown, exportAsText, exportAsPdf } from '../lib/exportNote';
 
 function NoteViewer({ note, preVerifiedPassword = '', onEdit, onDelete, onBack }) {
   const [loading, setLoading] = useState(false);
@@ -33,6 +35,12 @@ function NoteViewer({ note, preVerifiedPassword = '', onEdit, onDelete, onBack }
   const [copied, setCopied] = useState(false);
   const [shareExpiresInDays, setShareExpiresInDays] = useState(7);
 
+  // Export
+  const [showExport, setShowExport] = useState(false);
+  const [exportStatus, setExportStatus] = useState(null); // string | null
+  const [exportError, setExportError] = useState(null);
+  const contentRef = useRef(null);
+
   // Rendered HTML (memoized on content change)
   const renderedHtml = React.useMemo(
     () => renderMarkdown(note.content || '', { interactiveTasks: false }),
@@ -56,12 +64,15 @@ function NoteViewer({ note, preVerifiedPassword = '', onEdit, onDelete, onBack }
   useEffect(() => {
     setShowVersions(false);
     setShowShare(false);
+    setShowExport(false);
     setVersions([]);
     setShareToken('');
     setShareExpiresAt(null);
     setShareError(null);
     setVersionsError(null);
     setCopied(false);
+    setExportStatus(null);
+    setExportError(null);
   }, [note?._id]);
 
   const handleAutoVerify = async (password) => {
@@ -172,18 +183,13 @@ function NoteViewer({ note, preVerifiedPassword = '', onEdit, onDelete, onBack }
   const handleRestore = async (versionId) => {
     if (!isPasswordVerified) {
       setPasswordAction('restore');
-      // Fall through to password flow, storing the version to restore afterwards
-      // Simpler: require the user to already be verified. If not, ask.
       setShowPasswordModal(true);
       return;
     }
     setRestoringId(versionId);
     try {
       const updated = await api.restoreVersion(note._id, versionId, viewPassword);
-      // Reload the viewer with new content
       window.location.reload();
-      // (Reload is the simplest way to keep in sync; the alternative is a
-      //  callback prop, but this keeps the change contained.)
       void updated;
     } catch (err) {
       setVersionsError(err.response?.data?.error || err.message || 'RESTORE_FAILED');
@@ -248,13 +254,48 @@ function NoteViewer({ note, preVerifiedPassword = '', onEdit, onDelete, onBack }
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
     } catch (e) {
-      // Fallback for older browsers
       const el = document.createElement('textarea');
       el.value = shareUrl;
       document.body.appendChild(el);
       el.select();
       try { document.execCommand('copy'); setCopied(true); setTimeout(() => setCopied(false), 2000); } catch (err) { /* ignore */ }
       document.body.removeChild(el);
+    }
+  };
+
+  // ---------- Export ----------
+
+  const handleToggleExport = () => {
+    setShowExport((v) => !v);
+    setExportError(null);
+    setExportStatus(null);
+  };
+
+  const handleExportMarkdown = () => {
+    try {
+      exportAsMarkdown(note);
+    } catch (err) {
+      setExportError(err.message || 'EXPORT_FAILED');
+    }
+  };
+
+  const handleExportText = () => {
+    try {
+      exportAsText(note);
+    } catch (err) {
+      setExportError(err.message || 'EXPORT_FAILED');
+    }
+  };
+
+  const handleExportPdf = async () => {
+    setExportError(null);
+    try {
+      await exportAsPdf(note, contentRef.current, (msg) => setExportStatus(msg));
+      setExportStatus('DONE');
+      setTimeout(() => setExportStatus(null), 2000);
+    } catch (err) {
+      setExportError(err.message || 'PDF_EXPORT_FAILED');
+      setExportStatus(null);
     }
   };
 
@@ -333,6 +374,7 @@ function NoteViewer({ note, preVerifiedPassword = '', onEdit, onDelete, onBack }
           </div>
 
           <div
+            ref={contentRef}
             style={styles.content}
             className="note-preview"
             dangerouslySetInnerHTML={{ __html: renderedHtml || '<em>Empty note</em>' }}
@@ -354,6 +396,14 @@ function NoteViewer({ note, preVerifiedPassword = '', onEdit, onDelete, onBack }
             >
               <Share2 size={14} style={{ marginRight: '6px' }} />
               {showShare ? 'HIDE_SHARE' : 'SHARE_LINK'}
+            </button>
+            <button
+              type="button"
+              onClick={handleToggleExport}
+              style={styles.subButton}
+            >
+              <Download size={14} style={{ marginRight: '6px' }} />
+              {showExport ? 'HIDE_EXPORT' : 'EXPORT'}
             </button>
           </div>
 
@@ -469,6 +519,57 @@ function NoteViewer({ note, preVerifiedPassword = '', onEdit, onDelete, onBack }
                   </button>
                 </div>
               )}
+            </div>
+          )}
+
+          {showExport && (
+            <div style={styles.panel}>
+              <div style={styles.panelHeader}>
+                <span style={styles.panelTitle}>// EXPORT_NOTE</span>
+                <button onClick={() => setShowExport(false)} style={styles.panelClose}>
+                  <X size={14} />
+                </button>
+              </div>
+
+              <p style={styles.panelHint}>
+                [ DOWNLOAD_THIS_NOTE_AS_A_FILE ]
+              </p>
+
+              {exportError && <p style={styles.panelError}>⚠️ {exportError}</p>}
+              {exportStatus && !exportError && (
+                <p style={styles.panelHint}>{exportStatus}</p>
+              )}
+
+              <div style={styles.exportRow}>
+                <button
+                  type="button"
+                  onClick={handleExportMarkdown}
+                  style={styles.exportButton}
+                  title="Download as Markdown (.md)"
+                >
+                  <FileCode size={16} style={{ marginRight: '6px' }} />
+                  MARKDOWN
+                </button>
+                <button
+                  type="button"
+                  onClick={handleExportText}
+                  style={styles.exportButton}
+                  title="Download as plain text (.txt)"
+                >
+                  <FileText size={16} style={{ marginRight: '6px' }} />
+                  TEXT
+                </button>
+                <button
+                  type="button"
+                  onClick={handleExportPdf}
+                  disabled={!!exportStatus && exportStatus !== 'DONE'}
+                  style={styles.exportButtonPrimary}
+                  title="Download as PDF"
+                >
+                  <FileType size={16} style={{ marginRight: '6px' }} />
+                  {exportStatus && exportStatus !== 'DONE' ? exportStatus : 'PDF'}
+                </button>
+              </div>
             </div>
           )}
 
@@ -786,6 +887,47 @@ const styles = {
     letterSpacing: '1px',
     display: 'inline-flex',
     alignItems: 'center',
+    transition: 'all var(--t-fast)',
+  },
+  exportRow: {
+    display: 'flex',
+    gap: '10px',
+    flexWrap: 'wrap',
+    marginTop: '8px',
+  },
+  exportButton: {
+    flex: 1,
+    minWidth: '110px',
+    background: 'var(--surface-2)',
+    color: 'var(--accent)',
+    border: '1px solid var(--border-strong)',
+    borderRadius: 'var(--radius-sm)',
+    padding: '10px 14px',
+    cursor: 'pointer',
+    fontFamily: 'var(--font-mono)',
+    fontSize: '0.75rem',
+    letterSpacing: '1px',
+    display: 'inline-flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    transition: 'all var(--t-fast)',
+  },
+  exportButtonPrimary: {
+    flex: 1,
+    minWidth: '110px',
+    background: 'var(--accent-soft)',
+    color: 'var(--accent)',
+    border: '1px solid var(--accent)',
+    borderRadius: 'var(--radius-sm)',
+    padding: '10px 14px',
+    cursor: 'pointer',
+    fontFamily: 'var(--font-mono)',
+    fontSize: '0.75rem',
+    letterSpacing: '1px',
+    fontWeight: '700',
+    display: 'inline-flex',
+    alignItems: 'center',
+    justifyContent: 'center',
     transition: 'all var(--t-fast)',
   },
   actions: {
