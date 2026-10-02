@@ -1,12 +1,13 @@
 // client/src/components/NoteViewer.jsx
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import PasswordModal from './PasswordModal';
+import TableOfContents from './TableOfContents';
 import { api } from '../services/api';
-import { renderMarkdown } from '../lib/markdown';
+import { renderMarkdown, extractHeadingList } from '../lib/markdown';
 import {
   Edit, Trash2, Lock, Unlock, Calendar, ArrowLeft,
   History, Share2, Copy, Check, X, RotateCcw, Link2Off,
-  Download, FileText, FileCode, FileType,
+  Download, FileText, FileCode, FileType, List,
 } from 'lucide-react';
 import { exportAsMarkdown, exportAsText, exportAsPdf } from '../lib/exportNote';
 
@@ -42,6 +43,10 @@ function NoteViewer({ note, preVerifiedPassword = '', onEdit, onDelete, onBack }
   const [contentCopied, setContentCopied] = useState(false);
   const contentRef = useRef(null);
 
+  // Outline / table of contents
+  const [showToc, setShowToc] = useState(false);
+  const [activeHeadingId, setActiveHeadingId] = useState(null);
+
   // Rendered HTML (memoized on content change)
   const renderedHtml = React.useMemo(
     () => renderMarkdown(note.content || '', { interactiveTasks: false }),
@@ -66,6 +71,8 @@ function NoteViewer({ note, preVerifiedPassword = '', onEdit, onDelete, onBack }
     setShowVersions(false);
     setShowShare(false);
     setShowExport(false);
+    setShowToc(false);
+    setActiveHeadingId(null);
     setVersions([]);
     setShareToken('');
     setShareExpiresAt(null);
@@ -76,6 +83,39 @@ function NoteViewer({ note, preVerifiedPassword = '', onEdit, onDelete, onBack }
     setExportError(null);
     setContentCopied(false);
   }, [note?._id]);
+
+  // ----- Scroll spy: highlight the heading closest to the top of the viewport -----
+  useEffect(() => {
+    if (!showToc || !isPasswordVerified) return;
+
+    // Pull the same heading list the renderer used, so ids match the DOM.
+    // We re-import here to avoid a top-level circular import.
+    const headings = extractHeadingList(note?.content || '');
+    if (!headings.length) return;
+
+    const handleScroll = () => {
+      const container = contentRef.current;
+      if (!container) return;
+      const containerTop = container.getBoundingClientRect().top;
+      let current = headings[0]?.id || null;
+      for (const h of headings) {
+        const el = document.getElementById(h.id);
+        if (!el) continue;
+        const rect = el.getBoundingClientRect();
+        // 120px grace zone below the top of the content area
+        if (rect.top - containerTop <= 120) {
+          current = h.id;
+        } else {
+          break;
+        }
+      }
+      setActiveHeadingId(current);
+    };
+
+    handleScroll();
+    window.addEventListener('scroll', handleScroll, { passive: true });
+    return () => window.removeEventListener('scroll', handleScroll);
+  }, [showToc, isPasswordVerified, note?.content]);
 
   const handleAutoVerify = async (password) => {
     if (!note?._id) return;
@@ -335,6 +375,16 @@ function NoteViewer({ note, preVerifiedPassword = '', onEdit, onDelete, onBack }
     }
   };
 
+  // ---------- Outline navigation ----------
+
+  const handleTocSelect = (id) => {
+    const el = document.getElementById(id);
+    if (el) {
+      el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      setActiveHeadingId(id);
+    }
+  };
+
   // ---------- Locked state ----------
 
   if (!isPasswordVerified) {
@@ -413,6 +463,19 @@ function NoteViewer({ note, preVerifiedPassword = '', onEdit, onDelete, onBack }
           <div style={styles.topActions}>
             <button
               type="button"
+              onClick={() => setShowToc((v) => !v)}
+              style={{
+                ...styles.topActionButton,
+                ...(showToc ? { background: 'var(--accent-soft)', borderColor: 'var(--accent)' } : {}),
+              }}
+              title="Toggle table of contents"
+              aria-pressed={showToc}
+            >
+              <List size={14} style={{ marginRight: '6px' }} />
+              OUTLINE
+            </button>
+            <button
+              type="button"
               onClick={handleToggleVersions}
               style={styles.topActionButton}
               title="View and restore previous versions"
@@ -461,6 +524,17 @@ function NoteViewer({ note, preVerifiedPassword = '', onEdit, onDelete, onBack }
               )}
             </button>
           </div>
+
+          {showToc && (
+            <div style={{ marginBottom: '20px' }}>
+              <TableOfContents
+                content={note.content}
+                activeId={activeHeadingId}
+                onSelect={handleTocSelect}
+                onClose={() => setShowToc(false)}
+              />
+            </div>
+          )}
 
           {showVersions && (
             <div style={styles.panel}>

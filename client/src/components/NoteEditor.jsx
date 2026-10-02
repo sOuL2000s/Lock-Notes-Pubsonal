@@ -8,6 +8,7 @@ import {
 import { renderMarkdown } from '../lib/markdown';
 import { useDebouncedAutosave } from '../hooks/useDebouncedAutosave';
 import { api } from '../services/api';
+import TableOfContents from './TableOfContents';
 
 // ----- Line-level helpers (identical to previous version) -----
 
@@ -67,6 +68,25 @@ function relativeTime(ts) {
   return `${hours}h ago`;
 }
 
+// ---- Text statistics ----
+function computeTextStats(text) {
+  const raw = text || '';
+  const chars = raw.length;
+  const charsNoSpaces = raw.replace(/\s/g, '').length;
+
+  // Count words: sequences of non-whitespace characters
+  const trimmed = raw.trim();
+  const words = trimmed ? trimmed.split(/\s+/).filter(Boolean).length : 0;
+
+  // Lines (excluding empty trailing line)
+  const lines = raw ? raw.split('\n').length : 0;
+
+  // Reading time estimate (~200 wpm), minimum 1 minute if there's content
+  const readingMinutes = words > 0 ? Math.max(1, Math.round(words / 200)) : 0;
+
+  return { chars, charsNoSpaces, words, lines, readingMinutes };
+}
+
 function NoteEditor({ note, preVerifiedPassword = '', onSave, onCancel }) {
   const isEditMode = !!note;
 
@@ -82,6 +102,10 @@ function NoteEditor({ note, preVerifiedPassword = '', onSave, onCancel }) {
   const [showImageModal, setShowImageModal] = useState(false);
   const [imageUrl, setImageUrl] = useState('');
   const [isPreviewMode, setIsPreviewMode] = useState(false);
+
+  // Outline panel
+  const [showToc, setShowToc] = useState(false);
+  const [activeHeadingId, setActiveHeadingId] = useState(null);
 
   // Server-conflict state
   const [conflictBanner, setConflictBanner] = useState(null);
@@ -107,6 +131,8 @@ function NoteEditor({ note, preVerifiedPassword = '', onSave, onCancel }) {
   useEffect(() => {
     setIsPreviewMode(false);
     setConflictBanner(null);
+    setShowToc(false);
+    setActiveHeadingId(null);
     if (note) {
       setTitle(note.title || '');
       setContent(note.content || '');
@@ -553,6 +579,10 @@ function NoteEditor({ note, preVerifiedPassword = '', onSave, onCancel }) {
     [content]
   );
 
+  // ----- Text statistics -----
+
+  const textStats = useMemo(() => computeTextStats(content), [content]);
+
   // ----- Autosave (only in edit mode) -----
 
   const autosavePayload = useMemo(
@@ -607,6 +637,56 @@ function NoteEditor({ note, preVerifiedPassword = '', onSave, onCancel }) {
       });
     }
   }, [autosaveConflict]);
+
+  // ----- Outline navigation -----
+
+  const handleTocSelect = useCallback((id, lineIndex) => {
+    setActiveHeadingId(id);
+    const ta = editorRef.current;
+    if (!ta) return;
+
+    // If we're in preview mode, switch to edit mode so the caret is usable
+    setIsPreviewMode(false);
+
+    // If lineIndex wasn't provided (viewer-style call), find it from content
+    let targetLine = lineIndex;
+    if (typeof targetLine !== 'number') {
+      const lines = content.split('\n');
+      let inFence = false;
+      for (let i = 0; i < lines.length; i++) {
+        const ln = lines[i];
+        if (/^```/.test(ln.trim())) { inFence = !inFence; continue; }
+        if (inFence) continue;
+        const m = ln.match(/^(#{1,3})\s+(.+?)\s*#*\s*$/);
+        if (!m) continue;
+        // crude match by slug of the heading text
+        const plain = m[2].trim();
+        const base = plain.toLowerCase().trim()
+          .replace(/[^\w\s-]/g, '')
+          .replace(/\s+/g, '-')
+          .replace(/-+/g, '-')
+          .replace(/^-|-$/g, '');
+        if (base === id || id.startsWith(base)) { targetLine = i; break; }
+      }
+    }
+    if (typeof targetLine !== 'number') return;
+
+    // Compute character offset of the start of `targetLine`
+    const lines = content.split('\n');
+    let offset = 0;
+    for (let i = 0; i < targetLine && i < lines.length; i++) {
+      offset += lines[i].length + 1; // +1 for '\n'
+    }
+
+    requestAnimationFrame(() => {
+      const el = editorRef.current;
+      if (!el) return;
+      el.focus();
+      el.setSelectionRange(offset, offset);
+      const lineHeight = parseFloat(getComputedStyle(el).lineHeight) || 22;
+      el.scrollTop = Math.max(0, targetLine * lineHeight - el.clientHeight / 3);
+    });
+  }, [content]);
 
   // ----- Submit -----
 
@@ -666,7 +746,6 @@ function NoteEditor({ note, preVerifiedPassword = '', onSave, onCancel }) {
   // ----- Conflict resolution -----
 
   const resolveConflictKeepMine = async () => {
-    // Force the server to accept our version (skip expectedVersion) and bump locally
     setConflictBanner(null);
     if (!note?._id) return;
     try {
@@ -765,25 +844,51 @@ function NoteEditor({ note, preVerifiedPassword = '', onSave, onCancel }) {
             </h2>
             {autosaveIndicator}
           </div>
-          <button
-            type="button"
-            onClick={() => setIsPreviewMode(!isPreviewMode)}
-            style={styles.previewToggle}
-            title={isPreviewMode ? 'Switch to edit mode' : 'Switch to preview mode'}
-          >
-            {isPreviewMode ? (
-              <>
-                <Pencil size={14} style={{ marginRight: '6px' }} />
-                EDIT
-              </>
-            ) : (
-              <>
-                <EyeIcon size={14} style={{ marginRight: '6px' }} />
-                PREVIEW
-              </>
-            )}
-          </button>
+          <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+            <button
+              type="button"
+              onClick={() => setShowToc((v) => !v)}
+              style={{
+                ...styles.previewToggle,
+                ...(showToc ? styles.previewToggleActive : {}),
+              }}
+              title="Toggle table of contents"
+              aria-pressed={showToc}
+            >
+              <List size={14} style={{ marginRight: '6px' }} />
+              OUTLINE
+            </button>
+            <button
+              type="button"
+              onClick={() => setIsPreviewMode(!isPreviewMode)}
+              style={styles.previewToggle}
+              title={isPreviewMode ? 'Switch to edit mode' : 'Switch to preview mode'}
+            >
+              {isPreviewMode ? (
+                <>
+                  <Pencil size={14} style={{ marginRight: '6px' }} />
+                  EDIT
+                </>
+              ) : (
+                <>
+                  <EyeIcon size={14} style={{ marginRight: '6px' }} />
+                  PREVIEW
+                </>
+              )}
+            </button>
+          </div>
         </div>
+
+        {showToc && (
+          <div style={styles.tocPanel}>
+            <TableOfContents
+              content={content}
+              activeId={activeHeadingId}
+              onSelect={handleTocSelect}
+              onClose={() => setShowToc(false)}
+            />
+          </div>
+        )}
 
         {conflictBanner && (
           <div style={styles.conflictBanner}>
@@ -903,6 +1008,32 @@ function NoteEditor({ note, preVerifiedPassword = '', onSave, onCancel }) {
                   <span>• Enter continues lists</span>
                   <span>• Tab indents list items</span>
                   <span>• Paste images directly</span>
+                </div>
+
+                <div style={styles.editorStats}>
+                  <span style={styles.statItem}>
+                    <strong style={styles.statValue}>{textStats.words.toLocaleString()}</strong> words
+                  </span>
+                  <span style={styles.statDivider}>|</span>
+                  <span style={styles.statItem}>
+                    <strong style={styles.statValue}>{textStats.chars.toLocaleString()}</strong> chars
+                  </span>
+                  <span style={styles.statDivider}>|</span>
+                  <span style={styles.statItem}>
+                    <strong style={styles.statValue}>{textStats.charsNoSpaces.toLocaleString()}</strong> no spaces
+                  </span>
+                  <span style={styles.statDivider}>|</span>
+                  <span style={styles.statItem}>
+                    <strong style={styles.statValue}>{textStats.lines.toLocaleString()}</strong> lines
+                  </span>
+                  {textStats.readingMinutes > 0 && (
+                    <>
+                      <span style={styles.statDivider}>|</span>
+                      <span style={styles.statItem}>
+                        ~<strong style={styles.statValue}>{textStats.readingMinutes}</strong> min read
+                      </span>
+                    </>
+                  )}
                 </div>
               </>
             ) : (
@@ -1092,6 +1223,14 @@ const styles = {
     gap: '2px',
     letterSpacing: '1px',
   },
+  previewToggleActive: {
+    background: 'var(--accent-soft)',
+    borderColor: 'var(--accent)',
+    boxShadow: '0 0 8px var(--accent-glow)',
+  },
+  tocPanel: {
+    marginBottom: '16px',
+  },
   conflictBanner: {
     display: 'flex',
     alignItems: 'center',
@@ -1217,6 +1356,33 @@ const styles = {
     color: 'var(--text-faint)',
     fontFamily: 'var(--font-mono)',
     flexWrap: 'wrap',
+  },
+  editorStats: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '8px',
+    marginTop: '8px',
+    paddingTop: '8px',
+    borderTop: '1px dashed var(--border)',
+    fontSize: '0.7rem',
+    color: 'var(--text-faint)',
+    fontFamily: 'var(--font-mono)',
+    letterSpacing: '0.5px',
+    flexWrap: 'wrap',
+  },
+  statItem: {
+    display: 'inline-flex',
+    alignItems: 'center',
+    gap: '4px',
+    whiteSpace: 'nowrap',
+  },
+  statValue: {
+    color: 'var(--accent)',
+    fontWeight: '700',
+  },
+  statDivider: {
+    color: 'var(--border-strong)',
+    opacity: 0.6,
   },
   hintText: {
     fontSize: '0.7rem',

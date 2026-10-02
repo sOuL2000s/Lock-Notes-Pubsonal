@@ -1,18 +1,40 @@
 // client/src/theme/ThemeToggle.jsx
 import React from 'react';
-import { Sun, Moon } from 'lucide-react';
+import { Sun, Moon, Monitor } from 'lucide-react';
 import { useTheme } from './ThemeContext';
 
 function ThemeToggle({ style }) {
-  const { theme, toggleTheme } = useTheme();
-  const isDark = theme === 'dark';
+  const { preference, theme, toggleTheme, setPreference } = useTheme();
+
+  // Icon + label reflect the current *preference*, not the resolved theme,
+  // so the user knows what they've chosen.
+  const config = {
+    dark:   { Icon: Moon,    label: 'DARK',   title: 'Theme: Dark (click for Light)' },
+    light:  { Icon: Sun,     label: 'LIGHT',  title: 'Theme: Light (click for System)' },
+    system: {
+      Icon: Monitor,
+      label: 'SYSTEM',
+      title: `Theme: System — currently ${theme} (click for Dark)`,
+    },
+  }[preference] || { Icon: Monitor, label: 'SYSTEM', title: 'Theme' };
+
+  const { Icon, label, title } = config;
+
+  // Long-press / right-click cycles backwards (nice-to-have)
+  const handleContextMenu = (e) => {
+    e.preventDefault();
+    if (preference === 'dark') setPreference('system');
+    else if (preference === 'system') setPreference('light');
+    else setPreference('dark');
+  };
 
   return (
     <button
       type="button"
       onClick={toggleTheme}
-      aria-label={isDark ? 'Switch to light theme' : 'Switch to dark theme'}
-      title={isDark ? 'Light theme' : 'Dark theme'}
+      onContextMenu={handleContextMenu}
+      aria-label={`Switch theme (currently ${preference})`}
+      title={title}
       className="theme-toggle"
       style={{
         display: 'inline-flex',
@@ -32,8 +54,8 @@ function ThemeToggle({ style }) {
         ...style,
       }}
     >
-      {isDark ? <Sun size={14} /> : <Moon size={14} />}
-      <span style={{ display: 'inline-block' }}>{isDark ? 'LIGHT' : 'DARK'}</span>
+      <Icon size={14} />
+      <span style={{ display: 'inline-block' }}>{label}</span>
     </button>
   );
 }
