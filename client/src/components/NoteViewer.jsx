@@ -39,6 +39,7 @@ function NoteViewer({ note, preVerifiedPassword = '', onEdit, onDelete, onBack }
   const [showExport, setShowExport] = useState(false);
   const [exportStatus, setExportStatus] = useState(null); // string | null
   const [exportError, setExportError] = useState(null);
+  const [contentCopied, setContentCopied] = useState(false);
   const contentRef = useRef(null);
 
   // Rendered HTML (memoized on content change)
@@ -73,6 +74,7 @@ function NoteViewer({ note, preVerifiedPassword = '', onEdit, onDelete, onBack }
     setCopied(false);
     setExportStatus(null);
     setExportError(null);
+    setContentCopied(false);
   }, [note?._id]);
 
   const handleAutoVerify = async (password) => {
@@ -299,6 +301,40 @@ function NoteViewer({ note, preVerifiedPassword = '', onEdit, onDelete, onBack }
     }
   };
 
+  // ---------- Copy content ----------
+
+  const handleCopyContent = async () => {
+    const content = note?.content || '';
+    if (!content) {
+      setExportError('NO_CONTENT_TO_COPY');
+      return;
+    }
+
+    try {
+      await navigator.clipboard.writeText(content);
+      setContentCopied(true);
+      setTimeout(() => setContentCopied(false), 2000);
+    } catch (err) {
+      // Fallback for browsers/environments where clipboard API is unavailable
+      try {
+        const textarea = document.createElement('textarea');
+        textarea.value = content;
+        textarea.setAttribute('readonly', '');
+        textarea.style.position = 'fixed';
+        textarea.style.top = '-1000px';
+        textarea.style.opacity = '0';
+        document.body.appendChild(textarea);
+        textarea.select();
+        document.execCommand('copy');
+        document.body.removeChild(textarea);
+        setContentCopied(true);
+        setTimeout(() => setContentCopied(false), 2000);
+      } catch (fallbackErr) {
+        setExportError('COPY_FAILED');
+      }
+    }
+  };
+
   // ---------- Locked state ----------
 
   if (!isPasswordVerified) {
@@ -373,37 +409,56 @@ function NoteViewer({ note, preVerifiedPassword = '', onEdit, onDelete, onBack }
             <span style={styles.protected}>🔒 ENCRYPTED</span>
           </div>
 
-          <div
-            ref={contentRef}
-            style={styles.content}
-            className="note-preview"
-            dangerouslySetInnerHTML={{ __html: renderedHtml || '<em>Empty note</em>' }}
-          />
-
-          <div style={styles.subActions}>
+          {/* Top action bar — quick access to all note tools */}
+          <div style={styles.topActions}>
             <button
               type="button"
               onClick={handleToggleVersions}
-              style={styles.subButton}
+              style={styles.topActionButton}
+              title="View and restore previous versions"
             >
               <History size={14} style={{ marginRight: '6px' }} />
-              {showVersions ? 'HIDE_HISTORY' : 'VERSION_HISTORY'}
+              HISTORY
             </button>
             <button
               type="button"
               onClick={handleToggleShare}
-              style={styles.subButton}
+              style={styles.topActionButton}
+              title="Create or revoke a read-only share link"
             >
               <Share2 size={14} style={{ marginRight: '6px' }} />
-              {showShare ? 'HIDE_SHARE' : 'SHARE_LINK'}
+              SHARE
             </button>
             <button
               type="button"
               onClick={handleToggleExport}
-              style={styles.subButton}
+              style={styles.topActionButton}
+              title="Export note as Markdown, Text, or PDF"
             >
               <Download size={14} style={{ marginRight: '6px' }} />
-              {showExport ? 'HIDE_EXPORT' : 'EXPORT'}
+              EXPORT
+            </button>
+            <button
+              type="button"
+              onClick={handleCopyContent}
+              style={{
+                ...styles.topActionButton,
+                background: contentCopied ? 'var(--accent)' : 'var(--surface-2)',
+                color: contentCopied ? 'var(--bg)' : 'var(--accent)',
+              }}
+              title="Copy note content to clipboard"
+            >
+              {contentCopied ? (
+                <>
+                  <Check size={14} style={{ marginRight: '6px' }} />
+                  COPIED
+                </>
+              ) : (
+                <>
+                  <Copy size={14} style={{ marginRight: '6px' }} />
+                  COPY
+                </>
+              )}
             </button>
           </div>
 
@@ -532,13 +587,38 @@ function NoteViewer({ note, preVerifiedPassword = '', onEdit, onDelete, onBack }
               </div>
 
               <p style={styles.panelHint}>
-                [ DOWNLOAD_THIS_NOTE_AS_A_FILE ]
+                [ DOWNLOAD_THIS_NOTE_AS_A_FILE_OR_COPY_ITS_CONTENT ]
               </p>
 
               {exportError && <p style={styles.panelError}>⚠️ {exportError}</p>}
               {exportStatus && !exportError && (
                 <p style={styles.panelHint}>{exportStatus}</p>
               )}
+
+              <button
+                type="button"
+                onClick={handleCopyContent}
+                style={{
+                  ...styles.exportButtonPrimary,
+                  width: '100%',
+                  marginBottom: '12px',
+                  background: contentCopied ? 'var(--accent)' : 'var(--accent-soft)',
+                  color: contentCopied ? 'var(--bg)' : 'var(--accent)',
+                }}
+                title="Copy the raw Markdown content of this note to your clipboard"
+              >
+                {contentCopied ? (
+                  <>
+                    <Check size={16} style={{ marginRight: '6px' }} />
+                    COPIED!
+                  </>
+                ) : (
+                  <>
+                    <Copy size={16} style={{ marginRight: '6px' }} />
+                    COPY_CONTENT
+                  </>
+                )}
+              </button>
 
               <div style={styles.exportRow}>
                 <button
@@ -572,6 +652,13 @@ function NoteViewer({ note, preVerifiedPassword = '', onEdit, onDelete, onBack }
               </div>
             </div>
           )}
+
+          <div
+            ref={contentRef}
+            style={styles.content}
+            className="note-preview"
+            dangerouslySetInnerHTML={{ __html: renderedHtml || '<em>Empty note</em>' }}
+          />
 
           <div style={styles.actions}>
             <button onClick={handleEditClick} style={styles.editButton} disabled={loading}>
@@ -671,7 +758,7 @@ const styles = {
     display: 'flex',
     gap: 'clamp(10px, 2vw, 20px)',
     flexWrap: 'wrap',
-    marginBottom: '24px',
+    marginBottom: '20px',
     paddingBottom: '16px',
     borderBottom: '1px solid var(--border)',
   },
@@ -691,6 +778,30 @@ const styles = {
     fontWeight: '700',
     fontFamily: 'var(--font-mono)',
     border: '1px solid var(--warning)',
+  },
+  topActions: {
+    display: 'flex',
+    gap: '8px',
+    flexWrap: 'wrap',
+    marginBottom: '20px',
+    paddingBottom: '16px',
+    borderBottom: '1px solid var(--border)',
+  },
+  topActionButton: {
+    background: 'var(--surface-2)',
+    color: 'var(--accent)',
+    border: '1px solid var(--border-strong)',
+    borderRadius: 'var(--radius-sm)',
+    padding: '8px 14px',
+    cursor: 'pointer',
+    fontSize: '0.75rem',
+    fontFamily: 'var(--font-mono)',
+    letterSpacing: '1px',
+    display: 'inline-flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    transition: 'all var(--t-fast)',
+    fontWeight: '600',
   },
   content: {
     marginBottom: '30px',
