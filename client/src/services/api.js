@@ -12,19 +12,10 @@ const apiClient = axios.create({
   timeout: 30000,
 });
 
-// Request interceptor — cache buster on GETs
-apiClient.interceptors.request.use(
-  (config) => {
-    const method = (config.method || 'get').toLowerCase();
-    if (method === 'get') {
-      config.params = { ...config.params, _t: Date.now() };
-    }
-    return config;
-  },
-  (error) => Promise.reject(error)
-);
-
-// Response interceptor — retry GETs, normalize error messages
+// Response interceptor — retry GETs, normalize error messages.
+// NOTE: we deliberately do NOT add a cache-buster query param on GETs.
+// Doing so defeats both browser HTTP caching and the app's own
+// in-memory result cache in App.jsx.
 apiClient.interceptors.response.use(
   (response) => response,
   async (error) => {
@@ -87,10 +78,11 @@ apiClient.interceptors.response.use(
 
 export const api = {
   // ---------- Notes list ----------
-  getNotes: async ({ q, sort, limit, cursor } = {}) => {
+  getNotes: async ({ q, sort, mode, limit, cursor } = {}) => {
     const params = {};
     if (q) params.q = q;
     if (sort) params.sort = sort;
+    if (mode) params.mode = mode;
     if (limit) params.limit = limit;
     if (cursor) params.cursor = cursor;
     const response = await apiClient.get('/notes', { params });
@@ -123,7 +115,7 @@ export const api = {
 
   deleteNote: async (id, password) => {
     if (!id) throw new Error('NOTE_ID_REQUIRED');
-    // Password now goes in the body — no more leaking via query string / logs.
+    // Password goes in the body — no more leaking via query string / logs.
     const response = await apiClient.delete(`/note?id=${id}`, {
       data: { password },
     });

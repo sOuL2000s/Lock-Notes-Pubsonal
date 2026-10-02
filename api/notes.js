@@ -5,70 +5,88 @@ import bcrypt from 'bcryptjs';
 const DEFAULT_LIMIT = 20;
 const MAX_LIMIT = 100;
 
-// Snippet: return a small window of content around the first match.
-// Used to show search-result previews in the list without shipping the
-// full note body (which can be 100 KB) on every request.
-function buildSnippet(content, query, maxLen = 160) {
-  if (!content) return '';
-  const raw = String(content);
-  if (!query) return raw.slice(0, maxLen);
+// Minimum relevance score for $text results. Raise this to be stricter.
+// Set to 0 to disable the threshold entirely. Tune with real data.
+const MIN_TEXT_SCORE = 0.75;
 
-  const lower = raw.toLowerCase();
-  const q = String(query).toLowerCase().trim();
-  if (!q) return raw.slice(0, maxLen);
-
-  // Prefer the first whole-word match; fall back to first substring.
-  let idx = -1;
-  const wordRe = new RegExp(`\\b${q.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`, 'i');
-  const wordMatch = raw.match(wordRe);
-  if (wordMatch) {
-    idx = lower.indexOf(wordMatch[0].toLowerCase());
-  }
-  if (idx === -1) idx = lower.indexOf(q);
-  if (idx === -1) return raw.slice(0, maxLen);
-
-  const start = Math.max(0, idx - 60);
-  const end = Math.min(raw.length, idx + q.length + 80);
-  const prefix = start > 0 ? '…' : '';
-  const suffix = end < raw.length ? '…' : '';
-  return prefix + raw.slice(start, end).replace(/\s+/g, ' ') + suffix;
-}
-
-// Build a Mongo filter for the search term. Prefers $text when a text index
-// exists and the query is long enough; otherwise falls back to $regex over
-// title + content. Returns { filter, useTextSearch }.
-async function buildSearchFilter(notesCollection, trimmedQuery) {
+/**
+ * Build a Mongo filter for the search term.
+ *
+ * Modes:
+ *   - 'all'    (default): every whitespace-separated term must appear (AND).
+ *   - 'phrase'          : the entire query must appear as a contiguous phrase.
+ *   - 'any'             : any one of the terms may appear (OR).
+ *
+ * Prefers the $text index when available (>= 3-char queries). Falls back
+ * to word-boundary-anchored regex so that searching for "cat" does NOT
+ * match "concatenate" or "scatter".
+ *
+ * Returns { filter, useTextSearch }.
+ */
+async function buildSearchFilter(notesCollection, trimmedQuery, mode = 'all') {
   if (!trimmedQuery) return { filter: {}, useTextSearch: false };
 
-  let useTextSearch = false;
-  let filter = {};
+  const terms = trimmedQuery.split(/\s+/).filter(Boolean);
 
+  // ----- 1) Prefer the $text index --------------------------------
+  let hasTextIndex = false;
   try {
     const indexes = await notesCollection.indexes();
-    const hasTextIndex = indexes.some(
+    hasTextIndex = indexes.some(
       (idx) => idx.key && Object.values(idx.key).includes('text')
     );
-
-    // $text needs >= 3 chars for stemming to be useful; short queries use regex.
-    if (hasTextIndex && trimmedQuery.length >= 3) {
-      // Require ALL whitespace-separated terms (AND semantics). This gives
-      // much more precise results than the default OR behaviour of $search.
-      const terms = trimmedQuery.split(/\s+/).filter(Boolean);
-      const phrase = terms.map((t) => `"${t.replace(/"/g, '')}"`).join(' ');
-      filter.$text = { $search: phrase };
-      useTextSearch = true;
-    }
   } catch (e) {
-    // Index check failed — fall through to regex
+    hasTextIndex = false;
   }
 
-  if (!useTextSearch) {
-    const escaped = trimmedQuery.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-    const re = new RegExp(escaped, 'i');
-    filter.$or = [{ title: re }, { content: re }];
+  if (hasTextIndex && trimmedQuery.length >= 3) {
+    let searchString;
+    if (mode === 'phrase' || terms.length === 1) {
+      // Exact phrase — MongoDB treats "foo bar" as a phrase.
+      searchString = `"${trimmedQuery.replace(/"/g, '')}"`;
+    } else if (mode === 'any') {
+      // OR — space-separated terms default to OR in $text.
+      searchString = terms.map((t) => t.replace(/"/g, '')).join(' ');
+    } else {
+      // 'all' (default) — AND of every term.
+      searchString = terms.map((t) => `"${t.replace(/"/g, '')}"`).join(' ');
+    }
+    return {
+      filter: { $text: { $search: searchString } },
+      useTextSearch: true,
+    };
   }
 
-  return { filter, useTextSearch };
+  // ----- 2) Regex fallback (word-boundary anchored) ---------------
+  const escapedTerms = terms.map((t) =>
+    t.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+  );
+
+  if (mode === 'phrase' || terms.length === 1) {
+    // Whole phrase, word-boundary anchored. \b works for ASCII terms.
+    const re = new RegExp(`\\b${escapedTerms.join('\\s+')}\\b`, 'i');
+    return {
+      filter: { $or: [{ title: re }, { content: re }] },
+      useTextSearch: false,
+    };
+  }
+
+  if (mode === 'any') {
+    const res = escapedTerms.map((t) => new RegExp(`\\b${t}\\b`, 'i'));
+    return {
+      filter: { $or: res.flatMap((re) => [{ title: re }, { content: re }]) },
+      useTextSearch: false,
+    };
+  }
+
+  // 'all' — every term must appear (AND), each word-boundary anchored.
+  const res = escapedTerms.map((t) => new RegExp(`\\b${t}\\b`, 'i'));
+  return {
+    filter: {
+      $and: res.map((re) => ({ $or: [{ title: re }, { content: re }] })),
+    },
+    useTextSearch: false,
+  };
 }
 
 export default async function handler(req, res) {
@@ -90,13 +108,33 @@ export default async function handler(req, res) {
     // ----- GET /api/notes -----
     // Query params:
     //   q      : text search (title + content)
+    //   mode   : 'all' (default) | 'phrase' | 'any'
     //   sort   : 'recent' (default) | 'oldest' | 'title' | 'title_desc' | 'updated'
     //   limit  : 1..100 (default 20)
     //   cursor : ISO date string (createdAt or updatedAt depending on sort)
+    //
     // Response: { notes, nextCursor, total, hasMore }
+    //
+    // IMPORTANT — SECURITY MODEL:
+    //   Every note in this app is password-protected by design (the POST
+    //   handler enforces this). Therefore we NEVER ship note `content`
+    //   over the wire from this endpoint — not in the list view, not in
+    //   the search view, not ever. The client must call GET /api/note?id=…
+    //   and then POST /api/note?id=… with the password to actually read
+    //   any note's body.
+    //
+    //   Search matches ARE reported (so the user can find notes), but
+    //   without any snippet text. The client renders a lock badge instead.
     if (req.method === 'GET') {
       try {
-        const { q, sort = 'recent', limit: limitRaw, cursor } = req.query || {};
+        const {
+          q,
+          sort = 'recent',
+          limit: limitRaw,
+          cursor,
+          mode = 'all',
+        } = req.query || {};
+
         const limit = Math.min(
           Math.max(parseInt(limitRaw, 10) || DEFAULT_LIMIT, 1),
           MAX_LIMIT
@@ -104,11 +142,13 @@ export default async function handler(req, res) {
 
         const hasQuery = q && q.trim().length > 0;
         const trimmedQuery = hasQuery ? q.trim() : '';
+        const safeMode = ['all', 'any', 'phrase'].includes(mode) ? mode : 'all';
 
         // Build the search filter (shared for the page + the total count).
         const { filter: searchFilter, useTextSearch } = await buildSearchFilter(
           notesCollection,
-          trimmedQuery
+          trimmedQuery,
+          safeMode
         );
 
         // Clone the search filter for the page query (we'll add the cursor)
@@ -152,11 +192,15 @@ export default async function handler(req, res) {
           pageFilter[cursorField] = { [op]: cursorVal };
         }
 
-        // Include content ONLY when there is a search query, so we can
-        // generate snippets. Otherwise exclude it to keep list payloads small.
-        const projection = hasQuery
-          ? { password: 0, shareToken: 0 }
-          : { password: 0, content: 0, shareToken: 0 };
+        // ------------------------------------------------------------------
+        // SECURITY: NEVER project `content` or `password`. We only need the
+        // metadata fields the UI actually uses. `shareToken` is also hidden.
+        // ------------------------------------------------------------------
+        const projection = {
+          password: 0,
+          content: 0,
+          shareToken: 0,
+        };
 
         const total = await notesCollection.countDocuments(totalFilter);
 
@@ -165,7 +209,7 @@ export default async function handler(req, res) {
           .limit(limit + 1);
 
         if (useTextSearch) {
-          // Sort by text relevance first, then by the chosen sort
+          // Sort by text relevance first, then by the chosen sort.
           query.project({ score: { $meta: 'textScore' } });
           query.sort({ score: { $meta: 'textScore' }, ...sortSpec });
         } else {
@@ -174,19 +218,41 @@ export default async function handler(req, res) {
 
         const docs = await query.toArray();
 
-        const hasMore = docs.length > limit;
-        const page = hasMore ? docs.slice(0, limit) : docs;
+        // If we did a text search, drop low-relevance results.
+        let filtered = docs;
+        if (useTextSearch && MIN_TEXT_SCORE > 0) {
+          filtered = docs.filter((d) => (d.score ?? 1) >= MIN_TEXT_SCORE);
+          // If filtering removed everything, fall back to unfiltered so the
+          // user isn't left staring at an empty list for a valid query.
+          if (filtered.length === 0 && docs.length > 0) {
+            filtered = docs;
+          }
+        }
 
-        // Build the response. When searching, replace `content` with a
-        // short snippet so the client can highlight matches without the
-        // full body ever leaving the server.
+        const hasMore = filtered.length > limit;
+        const page = hasMore ? filtered.slice(0, limit) : filtered;
+
+        // ------------------------------------------------------------------
+        // Build the response with STRICT content protection.
+        //
+        // Since every note is password-protected, we:
+        //   - ALWAYS set `hasPassword: true` (it's an invariant of the app)
+        //   - NEVER include `content` or a `snippet`
+        //   - When searching, mark the note with `protectedMatch: true` so
+        //     the UI can render "🔒 MATCH INSIDE ENCRYPTED NOTE" instead
+        //     of a snippet.
+        // ------------------------------------------------------------------
         const notes = page.map((doc) => {
-          if (!hasQuery) return doc;
-          const { content, ...rest } = doc;
-          return {
+          const { score, ...rest } = doc;
+          const out = {
             ...rest,
-            snippet: buildSnippet(content, trimmedQuery),
+            hasPassword: true,
           };
+          if (hasQuery) {
+            out.protectedMatch = true;
+            out.snippet = null;
+          }
+          return out;
         });
 
         let nextCursor = null;
@@ -253,9 +319,10 @@ export default async function handler(req, res) {
 
         const result = await notesCollection.insertOne(note);
 
-        const { password: _, ...noteWithoutPassword } = note;
+        const { password: _, content: _c, ...noteWithoutSecrets } = note;
         res.status(201).json({
-          ...noteWithoutPassword,
+          ...noteWithoutSecrets,
+          hasPassword: true,
           _id: result.insertedId,
         });
       } catch (error) {

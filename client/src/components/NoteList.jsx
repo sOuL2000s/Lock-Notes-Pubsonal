@@ -6,8 +6,8 @@ import { Eye, Edit, Trash2, Lock, Calendar, FileText, Search } from 'lucide-reac
 
 /**
  * Highlight every case-insensitive occurrence of `query` inside `text`.
- * Returns an array of React nodes so the caller can drop them straight
- * into JSX. Used to render search-result snippets.
+ * Used to render highlighted matches in note TITLES (titles are not
+ * secret — they're always visible in the list).
  */
 function highlightMatches(text, query) {
   if (!text) return null;
@@ -156,7 +156,17 @@ function NoteList({
         ) : (
           <div style={styles.grid}>
             {notes.map((note) => {
-              const hasSnippet = hasSearch && typeof note.snippet === 'string';
+              // Every note in this app is encrypted (the API enforces a
+              // password at creation time), so we always render the
+              // encrypted-state UI. The only thing that varies is whether
+              // the note matched a search query — in which case we show
+              // a lock badge instead of any content preview.
+              const isProtectedMatch = hasSearch === true;
+              const hasSnippet =
+                hasSearch &&
+                typeof note.snippet === 'string' &&
+                note.snippet.length > 0;
+
               return (
                 <div key={note._id} style={styles.card}>
                   <div style={styles.cardHeader}>
@@ -169,7 +179,25 @@ function NoteList({
                   </div>
 
                   <p style={styles.cardContent}>
-                    {hasSnippet ? (
+                    {isProtectedMatch ? (
+                      <>
+                        <Lock
+                          size={14}
+                          style={{
+                            marginRight: '6px',
+                            opacity: 0.7,
+                            verticalAlign: 'middle',
+                            color: 'var(--warning)',
+                          }}
+                        />
+                        <span style={styles.protectedMatchText}>
+                          🔒 MATCH INSIDE ENCRYPTED NOTE
+                        </span>
+                      </>
+                    ) : hasSnippet ? (
+                      // This branch should never fire now (the API no longer
+                      // ships snippets for encrypted notes), but keep it as
+                      // a defensive fallback.
                       <>
                         <Search
                           size={14}
@@ -195,11 +223,6 @@ function NoteList({
                           }}
                         />
                         ENCRYPTED_NOTE
-                        {typeof note.contentLength === 'number' && (
-                          <span style={styles.charMeta}>
-                            [{note.contentLength} characters encrypted]
-                          </span>
-                        )}
                       </>
                     )}
                   </p>
@@ -328,11 +351,13 @@ const styles = {
     color: 'var(--text)',
     opacity: 0.95,
   },
-  charMeta: {
-    fontSize: '0.68rem',
-    opacity: 0.55,
-    display: 'block',
-    marginTop: '6px',
+  protectedMatchText: {
+    color: 'var(--warning)',
+    opacity: 0.9,
+    fontStyle: 'italic',
+    fontFamily: 'var(--font-mono)',
+    fontSize: '0.82rem',
+    letterSpacing: '0.5px',
   },
   cardFooter: {
     display: 'flex',

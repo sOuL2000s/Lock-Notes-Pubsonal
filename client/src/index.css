@@ -166,6 +166,12 @@ body {
 @keyframes glitchLine { 0%, 100% { opacity: 1; } 50% { opacity: 0.3; } }
 @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.5; } }
 
+/* Sweep animation for the search progress bar */
+@keyframes searchSweep {
+  0%   { transform: translateX(-120%); }
+  100% { transform: translateX(320%); }
+}
+
 .fade-in { animation: fadeIn var(--t-base) both; }
 .slide-in { animation: slideUp var(--t-base) both; }
 

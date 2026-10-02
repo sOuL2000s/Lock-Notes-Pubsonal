@@ -25,7 +25,7 @@ function HomePage() {
   const [error, setError] = useState(null);
   const [preVerifiedPassword, setPreVerifiedPassword] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
-  const [debouncedQuery, setDebouncedQuery] = useState('');
+  const [searchMode, setSearchMode] = useState('all');
   const [sort, setSort] = useState('recent');
   const [page, setPage] = useState(1);
   const [total, setTotal] = useState(0);
@@ -34,28 +34,24 @@ function HomePage() {
   // Cursor cache so we can jump between pages without re-walking.
   const cursorCache = useRef({ 1: undefined });
 
-  // In-memory response cache: key = `${q}|${sort}|${page}`.
+  // In-memory response cache: key = `${q}|${mode}|${sort}|${page}`.
   const resultCache = useRef(new Map());
 
-  // Debounce the search query
+  // Reset pagination whenever the search query or mode changes.
+  // (SearchBar handles the debouncing of the raw input.)
   useEffect(() => {
-    setSearchLoading(true);
-    const t = setTimeout(() => {
-      setDebouncedQuery(searchQuery.trim());
-      setPage(1);
-      cursorCache.current = { 1: undefined };
-    }, 350);
-    return () => clearTimeout(t);
-  }, [searchQuery]);
+    setPage(1);
+    cursorCache.current = { 1: undefined };
+  }, [searchQuery, searchMode]);
 
   const totalPages = Math.max(1, Math.ceil((total || 0) / PAGE_SIZE));
 
   const loadNotes = useCallback(
     async (targetPage = 1) => {
-      const cacheKey = `${debouncedQuery}|${sort}|${targetPage}`;
+      const cacheKey = `${searchQuery}|${searchMode}|${sort}|${targetPage}`;
       const cached = resultCache.current.get(cacheKey);
 
-      // Serve from cache when fresh (only for exact same query/sort/page).
+      // Serve from cache when fresh (only for exact same query/mode/sort/page).
       if (cached && Date.now() - cached.time < RESULT_CACHE_TTL_MS) {
         setNotes(cached.notes);
         setTotal(cached.total);
@@ -67,11 +63,11 @@ function HomePage() {
 
       try {
         setLoading(true);
-        setSearchLoading(!!debouncedQuery);
+        setSearchLoading(!!searchQuery);
 
         let cursor = cursorCache.current[targetPage];
 
-        // If we don't have the cursor cached, walk forward to it
+        // If we don't have the cursor cached, walk forward to it.
         if (cursor === undefined && targetPage > 1) {
           const cachedPages = Object.keys(cursorCache.current)
             .map(Number)
@@ -85,7 +81,8 @@ function HomePage() {
 
           for (let p = startPage + 1; p <= targetPage; p++) {
             const data = await api.getNotes({
-              q: debouncedQuery || undefined,
+              q: searchQuery || undefined,
+              mode: searchQuery ? searchMode : undefined,
               sort,
               limit: PAGE_SIZE,
               cursor: startCursor,
@@ -98,7 +95,8 @@ function HomePage() {
         }
 
         const data = await api.getNotes({
-          q: debouncedQuery || undefined,
+          q: searchQuery || undefined,
+          mode: searchQuery ? searchMode : undefined,
           sort,
           limit: PAGE_SIZE,
           cursor: cursor || undefined,
@@ -128,13 +126,13 @@ function HomePage() {
         setSearchLoading(false);
       }
     },
-    [debouncedQuery, sort]
+    [searchQuery, searchMode, sort]
   );
 
   useEffect(() => {
     loadNotes(page);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [debouncedQuery, sort, page]);
+  }, [searchQuery, searchMode, sort, page]);
 
   const handlePageChange = (nextPage) => {
     if (nextPage === page || nextPage < 1 || nextPage > totalPages) return;
@@ -269,11 +267,19 @@ function HomePage() {
             <SearchBar
               value={searchQuery}
               onChange={setSearchQuery}
+              mode={searchMode}
+              onModeChange={(m) => {
+                setSearchMode(m);
+                setPage(1);
+                cursorCache.current = { 1: undefined };
+                resultCache.current.clear();
+              }}
               loading={searchLoading}
-              resultCount={debouncedQuery ? total : null}
-              totalCount={debouncedQuery ? total : null}
-              placeholder="SEARCH_NOTES..."
+              resultCount={searchQuery ? total : null}
+              totalCount={searchQuery ? total : null}
+              placeholder="Search notes…"
             />
+
             <select
               value={sort}
               onChange={(e) => {
@@ -297,7 +303,7 @@ function HomePage() {
             {total > 0 && (
               <span>
                 PAGE {page} OF {totalPages} · SHOWING {notes.length} OF {total}
-                {debouncedQuery ? ` · SEARCH "${debouncedQuery}"` : ''}
+                {searchQuery ? ` · SEARCH "${searchQuery}"` : ''}
               </span>
             )}
           </div>
@@ -305,7 +311,7 @@ function HomePage() {
           <NoteList
             notes={notes}
             totalCount={total}
-            searchQuery={debouncedQuery}
+            searchQuery={searchQuery}
             onViewNote={handleViewNote}
             onEditNote={handleEditNote}
             onDeleteNote={handleDeleteNote}
@@ -485,7 +491,7 @@ const styles = {
     justifyContent: 'center',
     flexWrap: 'wrap',
     width: '100%',
-    maxWidth: '820px',
+    maxWidth: '900px',
     margin: '0 auto 16px auto',
   },
   sortSelect: {
