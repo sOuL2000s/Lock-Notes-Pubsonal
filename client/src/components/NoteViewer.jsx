@@ -2,6 +2,7 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import PasswordModal from './PasswordModal';
 import TableOfContents from './TableOfContents';
+import FloatingNoteActions from './FloatingNoteActions';
 import { api } from '../services/api';
 import { renderMarkdown, extractHeadingList } from '../lib/markdown';
 import {
@@ -38,7 +39,7 @@ function NoteViewer({ note, preVerifiedPassword = '', onEdit, onDelete, onBack }
 
   // Export
   const [showExport, setShowExport] = useState(false);
-  const [exportStatus, setExportStatus] = useState(null); // string | null
+  const [exportStatus, setExportStatus] = useState(null);
   const [exportError, setExportError] = useState(null);
   const [contentCopied, setContentCopied] = useState(false);
   const contentRef = useRef(null);
@@ -88,8 +89,6 @@ function NoteViewer({ note, preVerifiedPassword = '', onEdit, onDelete, onBack }
   useEffect(() => {
     if (!showToc || !isPasswordVerified) return;
 
-    // Pull the same heading list the renderer used, so ids match the DOM.
-    // We re-import here to avoid a top-level circular import.
     const headings = extractHeadingList(note?.content || '');
     if (!headings.length) return;
 
@@ -102,7 +101,6 @@ function NoteViewer({ note, preVerifiedPassword = '', onEdit, onDelete, onBack }
         const el = document.getElementById(h.id);
         if (!el) continue;
         const rect = el.getBoundingClientRect();
-        // 120px grace zone below the top of the content area
         if (rect.top - containerTop <= 120) {
           current = h.id;
         } else {
@@ -300,7 +298,13 @@ function NoteViewer({ note, preVerifiedPassword = '', onEdit, onDelete, onBack }
       el.value = shareUrl;
       document.body.appendChild(el);
       el.select();
-      try { document.execCommand('copy'); setCopied(true); setTimeout(() => setCopied(false), 2000); } catch (err) { /* ignore */ }
+      try {
+        document.execCommand('copy');
+        setCopied(true);
+        setTimeout(() => setCopied(false), 2000);
+      } catch (err) {
+        /* ignore */
+      }
       document.body.removeChild(el);
     }
   };
@@ -355,7 +359,6 @@ function NoteViewer({ note, preVerifiedPassword = '', onEdit, onDelete, onBack }
       setContentCopied(true);
       setTimeout(() => setContentCopied(false), 2000);
     } catch (err) {
-      // Fallback for browsers/environments where clipboard API is unavailable
       try {
         const textarea = document.createElement('textarea');
         textarea.value = content;
@@ -751,6 +754,23 @@ function NoteViewer({ note, preVerifiedPassword = '', onEdit, onDelete, onBack }
         </div>
       </div>
 
+      {/* Floating action bar — always accessible from anywhere on the page */}
+      <FloatingNoteActions
+        onEdit={handleEditClick}
+        onDelete={handleDeleteClick}
+        onToggleVersions={handleToggleVersions}
+        onToggleShare={handleToggleShare}
+        onToggleExport={handleToggleExport}
+        onToggleToc={() => setShowToc((v) => !v)}
+        onCopyContent={handleCopyContent}
+        contentCopied={contentCopied}
+        showToc={showToc}
+        showVersions={showVersions}
+        showShare={showShare}
+        showExport={showExport}
+        loading={loading}
+      />
+
       <PasswordModal
         isOpen={showPasswordModal}
         onClose={() => {
@@ -770,7 +790,7 @@ function NoteViewer({ note, preVerifiedPassword = '', onEdit, onDelete, onBack }
 
 const styles = {
   container: {
-    padding: '20px 0',
+    padding: 'clamp(12px, 3vw, 20px) 0',
     animation: 'fadeIn var(--t-base) both',
     width: '100%',
   },
@@ -778,7 +798,7 @@ const styles = {
     backgroundColor: 'var(--bg-elev)',
     border: '1px solid var(--border)',
     borderRadius: 'var(--radius-md)',
-    padding: 'clamp(24px, 4vw, 40px)',
+    padding: 'clamp(16px, 4vw, 40px)',
     boxShadow: 'var(--shadow-1)',
     maxWidth: '800px',
     margin: '0 auto',
@@ -809,7 +829,7 @@ const styles = {
   },
   title: {
     color: 'var(--accent)',
-    fontSize: 'clamp(1.5rem, 4vw, 2.2rem)',
+    fontSize: 'clamp(1.3rem, 4vw, 2.2rem)',
     fontWeight: '700',
     margin: 0,
     wordBreak: 'break-word',
@@ -883,28 +903,6 @@ const styles = {
     color: 'var(--text)',
     fontSize: 'clamp(0.95rem, 1.5vw, 1.05rem)',
     fontFamily: 'var(--font-mono)',
-  },
-  subActions: {
-    display: 'flex',
-    gap: '10px',
-    flexWrap: 'wrap',
-    borderTop: '1px solid var(--border)',
-    paddingTop: '16px',
-    marginBottom: '4px',
-  },
-  subButton: {
-    background: 'none',
-    border: '1px dashed var(--border-strong)',
-    color: 'var(--accent)',
-    padding: '8px 14px',
-    borderRadius: 'var(--radius-sm)',
-    cursor: 'pointer',
-    fontSize: '0.75rem',
-    fontFamily: 'var(--font-mono)',
-    letterSpacing: '1px',
-    display: 'inline-flex',
-    alignItems: 'center',
-    transition: 'all var(--t-fast)',
   },
   panel: {
     marginTop: '16px',
@@ -1047,6 +1045,7 @@ const styles = {
     fontFamily: 'var(--font-mono)',
     fontSize: '0.75rem',
     outline: 'none',
+    minWidth: 0,
   },
   copyButton: {
     background: 'var(--surface-2)',

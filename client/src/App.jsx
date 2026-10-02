@@ -1,80 +1,154 @@
 // client/src/App.jsx
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { Routes, Route, useNavigate, useParams, useLocation } from 'react-router-dom';
 import NoteList from './components/NoteList';
 import NoteEditor from './components/NoteEditor';
 import NoteViewer from './components/NoteViewer';
 import SharedNote from './components/SharedNote';
+import SearchBar from './components/SearchBar';
+import Pagination from './components/Pagination';
 import ThemeToggle from './theme/ThemeToggle';
 import { api } from './services/api';
-import { Terminal, Plus, AlertTriangle, Search } from 'lucide-react';
+import { Terminal, Plus, AlertTriangle } from 'lucide-react';
 
 const PAGE_SIZE = 20;
+
+// Small in-memory cache for recent (q, sort, page) results. Keeps
+// toggling between two searches instant without hitting the API again.
+const RESULT_CACHE_TTL_MS = 30 * 1000;
 
 function HomePage() {
   const [notes, setNotes] = useState([]);
   const [currentNote, setCurrentNote] = useState(null);
   const [viewMode, setViewMode] = useState('list');
   const [loading, setLoading] = useState(true);
-  const [loadingMore, setLoadingMore] = useState(false);
   const [error, setError] = useState(null);
   const [preVerifiedPassword, setPreVerifiedPassword] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
   const [debouncedQuery, setDebouncedQuery] = useState('');
   const [sort, setSort] = useState('recent');
-  const [nextCursor, setNextCursor] = useState(null);
-  const [hasMore, setHasMore] = useState(false);
+  const [page, setPage] = useState(1);
   const [total, setTotal] = useState(0);
+  const [searchLoading, setSearchLoading] = useState(false);
+
+  // Cursor cache so we can jump between pages without re-walking.
+  const cursorCache = useRef({ 1: undefined });
+
+  // In-memory response cache: key = `${q}|${sort}|${page}`.
+  const resultCache = useRef(new Map());
 
   // Debounce the search query
   useEffect(() => {
-    const t = setTimeout(() => setDebouncedQuery(searchQuery.trim()), 350);
+    setSearchLoading(true);
+    const t = setTimeout(() => {
+      setDebouncedQuery(searchQuery.trim());
+      setPage(1);
+      cursorCache.current = { 1: undefined };
+    }, 350);
     return () => clearTimeout(t);
   }, [searchQuery]);
 
+  const totalPages = Math.max(1, Math.ceil((total || 0) / PAGE_SIZE));
+
   const loadNotes = useCallback(
-    async ({ append = false } = {}) => {
+    async (targetPage = 1) => {
+      const cacheKey = `${debouncedQuery}|${sort}|${targetPage}`;
+      const cached = resultCache.current.get(cacheKey);
+
+      // Serve from cache when fresh (only for exact same query/sort/page).
+      if (cached && Date.now() - cached.time < RESULT_CACHE_TTL_MS) {
+        setNotes(cached.notes);
+        setTotal(cached.total);
+        setError(null);
+        setLoading(false);
+        setSearchLoading(false);
+        return;
+      }
+
       try {
-        if (append) setLoadingMore(true);
-        else setLoading(true);
+        setLoading(true);
+        setSearchLoading(!!debouncedQuery);
+
+        let cursor = cursorCache.current[targetPage];
+
+        // If we don't have the cursor cached, walk forward to it
+        if (cursor === undefined && targetPage > 1) {
+          const cachedPages = Object.keys(cursorCache.current)
+            .map(Number)
+            .filter(
+              (p) => p < targetPage && cursorCache.current[p] !== undefined
+            )
+            .sort((a, b) => b - a);
+
+          let startPage = cachedPages[0] || 1;
+          let startCursor = cursorCache.current[startPage];
+
+          for (let p = startPage + 1; p <= targetPage; p++) {
+            const data = await api.getNotes({
+              q: debouncedQuery || undefined,
+              sort,
+              limit: PAGE_SIZE,
+              cursor: startCursor,
+            });
+            cursorCache.current[p] = data.nextCursor || null;
+            startCursor = data.nextCursor;
+            if (!data.hasMore) break;
+          }
+          cursor = cursorCache.current[targetPage];
+        }
+
         const data = await api.getNotes({
           q: debouncedQuery || undefined,
           sort,
           limit: PAGE_SIZE,
-          cursor: append ? nextCursor || undefined : undefined,
+          cursor: cursor || undefined,
         });
+
         const list = data.notes || [];
-        setNotes((prev) => (append ? [...prev, ...list] : list));
-        setNextCursor(data.nextCursor || null);
-        setHasMore(!!data.hasMore);
-        setTotal(typeof data.total === 'number' ? data.total : list.length);
+        const totalCount =
+          typeof data.total === 'number' ? data.total : list.length;
+
+        setNotes(list);
+        setTotal(totalCount);
+        cursorCache.current[targetPage + 1] = data.nextCursor || null;
         setError(null);
+
+        // Remember this page for a short while.
+        resultCache.current.set(cacheKey, {
+          notes: list,
+          total: totalCount,
+          time: Date.now(),
+        });
       } catch (err) {
         setError('FAILED_TO_LOAD_NOTES');
         // eslint-disable-next-line no-console
         console.error(err);
       } finally {
         setLoading(false);
-        setLoadingMore(false);
+        setSearchLoading(false);
       }
     },
-    [debouncedQuery, sort, nextCursor]
+    [debouncedQuery, sort]
   );
 
   useEffect(() => {
-    loadNotes({ append: false });
+    loadNotes(page);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [debouncedQuery, sort]);
+  }, [debouncedQuery, sort, page]);
 
-  const handleLoadMore = () => {
-    if (!hasMore || loadingMore) return;
-    loadNotes({ append: true });
+  const handlePageChange = (nextPage) => {
+    if (nextPage === page || nextPage < 1 || nextPage > totalPages) return;
+    setPage(nextPage);
+    window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
   const handleCreateNote = async (noteData) => {
     try {
-      const newNote = await api.createNote(noteData);
-      setNotes((prev) => [newNote, ...prev]);
+      await api.createNote(noteData);
+      cursorCache.current = { 1: undefined };
+      resultCache.current.clear();
+      setPage(1);
+      await loadNotes(1);
       setViewMode('list');
       setCurrentNote(null);
       setPreVerifiedPassword('');
@@ -91,6 +165,8 @@ function HomePage() {
       setViewMode('list');
       setCurrentNote(null);
       setPreVerifiedPassword('');
+      // The cached list is now stale.
+      resultCache.current.clear();
     } catch (err) {
       setError(err.response?.data?.error || 'UPDATE_FAILED');
       throw err;
@@ -100,7 +176,9 @@ function HomePage() {
   const handleDeleteNote = async (id, password) => {
     try {
       await api.deleteNote(id, password);
-      setNotes((prev) => prev.filter((n) => n._id !== id));
+      cursorCache.current = { 1: undefined };
+      resultCache.current.clear();
+      await loadNotes(page);
       if (currentNote?._id === id) {
         setCurrentNote(null);
         setViewMode('list');
@@ -138,7 +216,7 @@ function HomePage() {
     setPreVerifiedPassword('');
   };
 
-  if (loading && viewMode === 'list') {
+  if (loading && viewMode === 'list' && notes.length === 0) {
     return (
       <div style={styles.loadingContainer}>
         <div style={styles.loadingContent}>
@@ -157,7 +235,7 @@ function HomePage() {
           <h1 style={styles.logo}>// NOTE_SHARE</h1>
           <p style={styles.tagline}>[ SECURE_NOTE_SYSTEM ]</p>
         </div>
-        <div style={{ position: 'absolute', right: 0, top: 0 }}>
+        <div style={styles.themeToggleWrap}>
           <ThemeToggle />
         </div>
       </header>
@@ -166,7 +244,9 @@ function HomePage() {
         <div style={styles.errorBanner}>
           <AlertTriangle size={18} style={styles.errorIcon} />
           <span style={styles.errorText}>⚠️ {error}</span>
-          <button onClick={() => setError(null)} style={styles.errorClose}>✕</button>
+          <button onClick={() => setError(null)} style={styles.errorClose}>
+            ✕
+          </button>
         </div>
       )}
 
@@ -186,30 +266,22 @@ function HomePage() {
           </button>
 
           <div style={styles.toolbar}>
-            <div style={styles.searchWrapper}>
-              <Search size={16} style={styles.searchIcon} />
-              <input
-                type="text"
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                placeholder="SEARCH_NOTES..."
-                style={styles.searchInput}
-                aria-label="Search notes"
-              />
-              {searchQuery && (
-                <button
-                  type="button"
-                  onClick={() => setSearchQuery('')}
-                  style={styles.searchClear}
-                  aria-label="Clear search"
-                >
-                  ✕
-                </button>
-              )}
-            </div>
+            <SearchBar
+              value={searchQuery}
+              onChange={setSearchQuery}
+              loading={searchLoading}
+              resultCount={debouncedQuery ? total : null}
+              totalCount={debouncedQuery ? total : null}
+              placeholder="SEARCH_NOTES..."
+            />
             <select
               value={sort}
-              onChange={(e) => setSort(e.target.value)}
+              onChange={(e) => {
+                setSort(e.target.value);
+                setPage(1);
+                cursorCache.current = { 1: undefined };
+                resultCache.current.clear();
+              }}
               style={styles.sortSelect}
               aria-label="Sort notes"
             >
@@ -224,7 +296,7 @@ function HomePage() {
           <div style={styles.counter}>
             {total > 0 && (
               <span>
-                SHOWING {notes.length} OF {total}
+                PAGE {page} OF {totalPages} · SHOWING {notes.length} OF {total}
                 {debouncedQuery ? ` · SEARCH "${debouncedQuery}"` : ''}
               </span>
             )}
@@ -239,17 +311,12 @@ function HomePage() {
             onDeleteNote={handleDeleteNote}
           />
 
-          {hasMore && (
-            <div style={{ textAlign: 'center', marginTop: '24px' }}>
-              <button
-                onClick={handleLoadMore}
-                disabled={loadingMore}
-                style={styles.loadMoreButton}
-              >
-                {loadingMore ? 'LOADING…' : 'LOAD_MORE'}
-              </button>
-            </div>
-          )}
+          <Pagination
+            currentPage={page}
+            totalPages={totalPages}
+            onPageChange={handlePageChange}
+            loading={loading}
+          />
         </>
       )}
 
@@ -289,12 +356,17 @@ function SharedNotePage() {
         const data = await api.getSharedNote(token);
         if (!cancelled) setNote(data);
       } catch (err) {
-        if (!cancelled) setError(err.response?.data?.error || err.message || 'SHARED_NOTE_FAILED');
+        if (!cancelled)
+          setError(
+            err.response?.data?.error || err.message || 'SHARED_NOTE_FAILED'
+          );
       } finally {
         if (!cancelled) setLoading(false);
       }
     })();
-    return () => { cancelled = true; };
+    return () => {
+      cancelled = true;
+    };
   }, [token]);
 
   if (loading) {
@@ -326,7 +398,6 @@ function SharedNotePage() {
 }
 
 function App() {
-  // Scroll to top on navigation
   const location = useLocation();
   useEffect(() => {
     window.scrollTo({ top: 0 });
@@ -346,12 +417,12 @@ const styles = {
   container: {
     maxWidth: '1280px',
     margin: '0 auto',
-    padding: '20px',
+    padding: 'clamp(12px, 3vw, 20px)',
     width: '100%',
     position: 'relative',
   },
   header: {
-    marginBottom: '32px',
+    marginBottom: 'clamp(20px, 4vw, 32px)',
     textAlign: 'center',
     animation: 'fadeIn var(--t-slow) both',
     position: 'relative',
@@ -362,8 +433,13 @@ const styles = {
     alignItems: 'center',
     gap: '4px',
   },
+  themeToggleWrap: {
+    position: 'absolute',
+    right: 0,
+    top: 0,
+  },
   logo: {
-    fontSize: 'clamp(2rem, 5vw, 3rem)',
+    fontSize: 'clamp(1.6rem, 5vw, 3rem)',
     fontWeight: '800',
     color: 'var(--accent)',
     textShadow: '0 0 20px var(--accent-glow)',
@@ -371,7 +447,7 @@ const styles = {
     fontFamily: 'var(--font-mono)',
   },
   tagline: {
-    fontSize: 'clamp(0.7rem, 1.5vw, 0.9rem)',
+    fontSize: 'clamp(0.65rem, 1.5vw, 0.9rem)',
     color: 'var(--accent)',
     opacity: 0.5,
     fontWeight: '400',
@@ -409,48 +485,8 @@ const styles = {
     justifyContent: 'center',
     flexWrap: 'wrap',
     width: '100%',
-    maxWidth: '720px',
+    maxWidth: '820px',
     margin: '0 auto 16px auto',
-  },
-  searchWrapper: {
-    position: 'relative',
-    flex: '1 1 320px',
-    maxWidth: '480px',
-    display: 'flex',
-    alignItems: 'center',
-  },
-  searchIcon: {
-    position: 'absolute',
-    left: '14px',
-    color: 'var(--accent)',
-    opacity: 0.5,
-    pointerEvents: 'none',
-  },
-  searchInput: {
-    width: '100%',
-    padding: '12px 40px 12px 40px',
-    backgroundColor: 'var(--surface-3)',
-    border: '1px solid var(--border)',
-    borderRadius: 'var(--radius-sm)',
-    color: 'var(--text)',
-    fontSize: 'clamp(0.8rem, 1.5vw, 0.9rem)',
-    fontFamily: 'var(--font-mono)',
-    letterSpacing: '1px',
-    outline: 'none',
-    transition: 'all var(--t-fast)',
-  },
-  searchClear: {
-    position: 'absolute',
-    right: '10px',
-    background: 'none',
-    border: '1px solid var(--border)',
-    color: 'var(--accent)',
-    cursor: 'pointer',
-    padding: '2px 8px',
-    borderRadius: 'var(--radius-sm)',
-    fontFamily: 'var(--font-mono)',
-    fontSize: '0.8rem',
-    opacity: 0.7,
   },
   sortSelect: {
     padding: '12px 36px 12px 14px',
@@ -468,11 +504,11 @@ const styles = {
     MozAppearance: 'none',
     backgroundImage:
       'linear-gradient(45deg, transparent 50%, var(--accent) 50%), linear-gradient(135deg, var(--accent) 50%, transparent 50%)',
-    backgroundPosition:
-      'calc(100% - 18px) 50%, calc(100% - 12px) 50%',
+    backgroundPosition: 'calc(100% - 18px) 50%, calc(100% - 12px) 50%',
     backgroundSize: '6px 6px, 6px 6px',
     backgroundRepeat: 'no-repeat',
-    colorScheme: 'dark',
+    flex: '0 1 auto',
+    minWidth: '160px',
   },
   counter: {
     textAlign: 'center',
@@ -482,19 +518,7 @@ const styles = {
     color: 'var(--text-dim)',
     marginBottom: '16px',
     minHeight: '1em',
-  },
-  loadMoreButton: {
-    backgroundColor: 'var(--surface-2)',
-    color: 'var(--accent)',
-    padding: '12px 32px',
-    border: '1px solid var(--border-strong)',
-    borderRadius: 'var(--radius-sm)',
-    fontFamily: 'var(--font-mono)',
-    fontSize: '0.85rem',
-    letterSpacing: '1px',
-    fontWeight: '700',
-    cursor: 'pointer',
-    transition: 'all var(--t-fast)',
+    padding: '0 8px',
   },
   loadingContainer: {
     display: 'flex',

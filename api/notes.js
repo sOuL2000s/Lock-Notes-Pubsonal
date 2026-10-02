@@ -5,6 +5,72 @@ import bcrypt from 'bcryptjs';
 const DEFAULT_LIMIT = 20;
 const MAX_LIMIT = 100;
 
+// Snippet: return a small window of content around the first match.
+// Used to show search-result previews in the list without shipping the
+// full note body (which can be 100 KB) on every request.
+function buildSnippet(content, query, maxLen = 160) {
+  if (!content) return '';
+  const raw = String(content);
+  if (!query) return raw.slice(0, maxLen);
+
+  const lower = raw.toLowerCase();
+  const q = String(query).toLowerCase().trim();
+  if (!q) return raw.slice(0, maxLen);
+
+  // Prefer the first whole-word match; fall back to first substring.
+  let idx = -1;
+  const wordRe = new RegExp(`\\b${q.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`, 'i');
+  const wordMatch = raw.match(wordRe);
+  if (wordMatch) {
+    idx = lower.indexOf(wordMatch[0].toLowerCase());
+  }
+  if (idx === -1) idx = lower.indexOf(q);
+  if (idx === -1) return raw.slice(0, maxLen);
+
+  const start = Math.max(0, idx - 60);
+  const end = Math.min(raw.length, idx + q.length + 80);
+  const prefix = start > 0 ? '…' : '';
+  const suffix = end < raw.length ? '…' : '';
+  return prefix + raw.slice(start, end).replace(/\s+/g, ' ') + suffix;
+}
+
+// Build a Mongo filter for the search term. Prefers $text when a text index
+// exists and the query is long enough; otherwise falls back to $regex over
+// title + content. Returns { filter, useTextSearch }.
+async function buildSearchFilter(notesCollection, trimmedQuery) {
+  if (!trimmedQuery) return { filter: {}, useTextSearch: false };
+
+  let useTextSearch = false;
+  let filter = {};
+
+  try {
+    const indexes = await notesCollection.indexes();
+    const hasTextIndex = indexes.some(
+      (idx) => idx.key && Object.values(idx.key).includes('text')
+    );
+
+    // $text needs >= 3 chars for stemming to be useful; short queries use regex.
+    if (hasTextIndex && trimmedQuery.length >= 3) {
+      // Require ALL whitespace-separated terms (AND semantics). This gives
+      // much more precise results than the default OR behaviour of $search.
+      const terms = trimmedQuery.split(/\s+/).filter(Boolean);
+      const phrase = terms.map((t) => `"${t.replace(/"/g, '')}"`).join(' ');
+      filter.$text = { $search: phrase };
+      useTextSearch = true;
+    }
+  } catch (e) {
+    // Index check failed — fall through to regex
+  }
+
+  if (!useTextSearch) {
+    const escaped = trimmedQuery.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const re = new RegExp(escaped, 'i');
+    filter.$or = [{ title: re }, { content: re }];
+  }
+
+  return { filter, useTextSearch };
+}
+
 export default async function handler(req, res) {
   if (typeof res.setHeader === 'function') {
     res.setHeader('Access-Control-Allow-Origin', '*');
@@ -27,16 +93,29 @@ export default async function handler(req, res) {
     //   sort   : 'recent' (default) | 'oldest' | 'title' | 'title_desc' | 'updated'
     //   limit  : 1..100 (default 20)
     //   cursor : ISO date string (createdAt or updatedAt depending on sort)
-    // Response: { notes, nextCursor, total }
+    // Response: { notes, nextCursor, total, hasMore }
     if (req.method === 'GET') {
       try {
         const { q, sort = 'recent', limit: limitRaw, cursor } = req.query || {};
-        const limit = Math.min(Math.max(parseInt(limitRaw, 10) || DEFAULT_LIMIT, 1), MAX_LIMIT);
+        const limit = Math.min(
+          Math.max(parseInt(limitRaw, 10) || DEFAULT_LIMIT, 1),
+          MAX_LIMIT
+        );
 
-        const filter = {};
-        if (q && q.trim()) {
-          filter.$text = { $search: q.trim() };
-        }
+        const hasQuery = q && q.trim().length > 0;
+        const trimmedQuery = hasQuery ? q.trim() : '';
+
+        // Build the search filter (shared for the page + the total count).
+        const { filter: searchFilter, useTextSearch } = await buildSearchFilter(
+          notesCollection,
+          trimmedQuery
+        );
+
+        // Clone the search filter for the page query (we'll add the cursor)
+        // and keep a separate copy for countDocuments so pagination doesn't
+        // affect the total.
+        const pageFilter = { ...searchFilter };
+        const totalFilter = searchFilter;
 
         // Sort strategy + cursor field
         let sortSpec;
@@ -65,38 +144,50 @@ export default async function handler(req, res) {
         }
 
         if (cursor) {
-          const cursorVal = (cursorField === 'createdAt' || cursorField === 'updatedAt')
-            ? new Date(cursor)
-            : cursor;
-          const op = (sort === 'oldest' || sort === 'title') ? '$gt' : '$lt';
-          filter[cursorField] = { [op]: cursorVal };
+          const cursorVal =
+            cursorField === 'createdAt' || cursorField === 'updatedAt'
+              ? new Date(cursor)
+              : cursor;
+          const op = sort === 'oldest' || sort === 'title' ? '$gt' : '$lt';
+          pageFilter[cursorField] = { [op]: cursorVal };
         }
 
-        // Exclude content from list payload — only fetch on view
-        const projection = {
-          password: 0,
-          content: 0,
-          shareToken: 0,
-        };
+        // Include content ONLY when there is a search query, so we can
+        // generate snippets. Otherwise exclude it to keep list payloads small.
+        const projection = hasQuery
+          ? { password: 0, shareToken: 0 }
+          : { password: 0, content: 0, shareToken: 0 };
 
-        const total = await notesCollection.countDocuments(
-          q && q.trim() ? { $text: { $search: q.trim() } } : {}
-        );
+        const total = await notesCollection.countDocuments(totalFilter);
 
-        const docs = await notesCollection
-          .find(filter, { projection })
-          .sort(sortSpec)
-          .limit(limit + 1) // +1 to detect "has more"
-          .toArray();
+        const query = notesCollection
+          .find(pageFilter, { projection })
+          .limit(limit + 1);
+
+        if (useTextSearch) {
+          // Sort by text relevance first, then by the chosen sort
+          query.project({ score: { $meta: 'textScore' } });
+          query.sort({ score: { $meta: 'textScore' }, ...sortSpec });
+        } else {
+          query.sort(sortSpec);
+        }
+
+        const docs = await query.toArray();
 
         const hasMore = docs.length > limit;
         const page = hasMore ? docs.slice(0, limit) : docs;
 
-        // Attach content length for the list preview (compute cheaply)
-        // We don't have content (projection excludes it), so client shows
-        // a small placeholder. To keep the existing UI working, we add a
-        // separate lightweight aggregation only if explicitly requested.
-        // For now, we simply omit and let the UI adapt.
+        // Build the response. When searching, replace `content` with a
+        // short snippet so the client can highlight matches without the
+        // full body ever leaving the server.
+        const notes = page.map((doc) => {
+          if (!hasQuery) return doc;
+          const { content, ...rest } = doc;
+          return {
+            ...rest,
+            snippet: buildSnippet(content, trimmedQuery),
+          };
+        });
 
         let nextCursor = null;
         if (hasMore && page.length > 0) {
@@ -105,7 +196,7 @@ export default async function handler(req, res) {
           nextCursor = val instanceof Date ? val.toISOString() : val;
         }
 
-        res.status(200).json({ notes: page, nextCursor, total, hasMore });
+        res.status(200).json({ notes, nextCursor, total, hasMore });
       } catch (error) {
         console.error('GET error:', error);
         res.status(500).json({ error: 'Failed to fetch notes' });

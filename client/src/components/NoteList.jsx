@@ -2,7 +2,51 @@
 import React, { useState } from 'react';
 import PasswordModal from './PasswordModal';
 import { api } from '../services/api';
-import { Eye, Edit, Trash2, Lock, Calendar, FileText } from 'lucide-react';
+import { Eye, Edit, Trash2, Lock, Calendar, FileText, Search } from 'lucide-react';
+
+/**
+ * Highlight every case-insensitive occurrence of `query` inside `text`.
+ * Returns an array of React nodes so the caller can drop them straight
+ * into JSX. Used to render search-result snippets.
+ */
+function highlightMatches(text, query) {
+  if (!text) return null;
+  if (!query) return text;
+
+  const q = String(query).trim();
+  if (!q) return text;
+
+  const lowerText = text.toLowerCase();
+  const lowerQuery = q.toLowerCase();
+  const parts = [];
+  let i = 0;
+  let key = 0;
+
+  while (i < text.length) {
+    const hit = lowerText.indexOf(lowerQuery, i);
+    if (hit === -1) {
+      parts.push(text.slice(i));
+      break;
+    }
+    if (hit > i) parts.push(text.slice(i, hit));
+    parts.push(
+      <mark
+        key={`m-${key++}`}
+        style={{
+          background: 'var(--accent-soft)',
+          color: 'var(--accent)',
+          padding: '0 2px',
+          borderRadius: '2px',
+        }}
+      >
+        {text.slice(hit, hit + q.length)}
+      </mark>
+    );
+    i = hit + q.length;
+  }
+
+  return parts;
+}
 
 function NoteList({
   notes,
@@ -111,63 +155,99 @@ function NoteList({
           )
         ) : (
           <div style={styles.grid}>
-            {notes.map((note) => (
-              <div key={note._id} style={styles.card}>
-                <div style={styles.cardHeader}>
-                  <h3 style={styles.cardTitle}>{note.title}</h3>
-                  <Lock size={14} style={styles.lockBadge} />
-                </div>
+            {notes.map((note) => {
+              const hasSnippet = hasSearch && typeof note.snippet === 'string';
+              return (
+                <div key={note._id} style={styles.card}>
+                  <div style={styles.cardHeader}>
+                    <h3 style={styles.cardTitle}>
+                      {hasSearch
+                        ? highlightMatches(note.title, searchQuery.trim())
+                        : note.title}
+                    </h3>
+                    <Lock size={14} style={styles.lockBadge} />
+                  </div>
 
-                <p style={styles.cardContent}>
-                  <FileText
-                    size={14}
-                    style={{ marginRight: '6px', opacity: 0.6, verticalAlign: 'middle' }}
-                  />
-                  ENCRYPTED_NOTE
-                  {typeof note.contentLength === 'number' && (
-                    <span style={styles.charMeta}>
-                      [{note.contentLength} characters encrypted]
+                  <p style={styles.cardContent}>
+                    {hasSnippet ? (
+                      <>
+                        <Search
+                          size={14}
+                          style={{
+                            marginRight: '6px',
+                            opacity: 0.6,
+                            verticalAlign: 'middle',
+                            color: 'var(--accent)',
+                          }}
+                        />
+                        <span style={styles.snippetText}>
+                          {highlightMatches(note.snippet, searchQuery.trim())}
+                        </span>
+                      </>
+                    ) : (
+                      <>
+                        <FileText
+                          size={14}
+                          style={{
+                            marginRight: '6px',
+                            opacity: 0.6,
+                            verticalAlign: 'middle',
+                          }}
+                        />
+                        ENCRYPTED_NOTE
+                        {typeof note.contentLength === 'number' && (
+                          <span style={styles.charMeta}>
+                            [{note.contentLength} characters encrypted]
+                          </span>
+                        )}
+                      </>
+                    )}
+                  </p>
+
+                  <div style={styles.cardFooter}>
+                    <span style={styles.cardDate}>
+                      <Calendar size={12} style={{ marginRight: '4px' }} />
+                      {new Date(note.createdAt).toLocaleDateString('en-US', {
+                        month: 'short',
+                        day: 'numeric',
+                        year: 'numeric',
+                      })}
                     </span>
-                  )}
-                </p>
+                    <span style={styles.protectedBadge}>🔒 ENCRYPTED</span>
+                  </div>
 
-                <div style={styles.cardFooter}>
-                  <span style={styles.cardDate}>
-                    <Calendar size={12} style={{ marginRight: '4px' }} />
-                    {new Date(note.createdAt).toLocaleDateString('en-US', {
-                      month: 'short',
-                      day: 'numeric',
-                      year: 'numeric',
-                    })}
-                  </span>
-                  <span style={styles.protectedBadge}>🔒 ENCRYPTED</span>
+                  <div style={styles.cardActions}>
+                    <button
+                      onClick={() =>
+                        handleActionWithPassword(note._id, 'view', note.title)
+                      }
+                      style={styles.viewButton}
+                    >
+                      <Eye size={14} style={{ marginRight: '4px' }} />
+                      VIEW
+                    </button>
+                    <button
+                      onClick={() =>
+                        handleActionWithPassword(note._id, 'edit', note.title)
+                      }
+                      style={styles.editButton}
+                    >
+                      <Edit size={14} style={{ marginRight: '4px' }} />
+                      EDIT
+                    </button>
+                    <button
+                      onClick={() =>
+                        handleActionWithPassword(note._id, 'delete', note.title)
+                      }
+                      style={styles.deleteButton}
+                    >
+                      <Trash2 size={14} style={{ marginRight: '4px' }} />
+                      DELETE
+                    </button>
+                  </div>
                 </div>
-
-                <div style={styles.cardActions}>
-                  <button
-                    onClick={() => handleActionWithPassword(note._id, 'view', note.title)}
-                    style={styles.viewButton}
-                  >
-                    <Eye size={14} style={{ marginRight: '4px' }} />
-                    VIEW
-                  </button>
-                  <button
-                    onClick={() => handleActionWithPassword(note._id, 'edit', note.title)}
-                    style={styles.editButton}
-                  >
-                    <Edit size={14} style={{ marginRight: '4px' }} />
-                    EDIT
-                  </button>
-                  <button
-                    onClick={() => handleActionWithPassword(note._id, 'delete', note.title)}
-                    style={styles.deleteButton}
-                  >
-                    <Trash2 size={14} style={{ marginRight: '4px' }} />
-                    DELETE
-                  </button>
-                </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         )}
       </div>
@@ -242,6 +322,11 @@ const styles = {
     marginBottom: '16px',
     wordBreak: 'break-word',
     fontFamily: 'var(--font-mono)',
+  },
+  snippetText: {
+    lineHeight: '1.55',
+    color: 'var(--text)',
+    opacity: 0.95,
   },
   charMeta: {
     fontSize: '0.68rem',
