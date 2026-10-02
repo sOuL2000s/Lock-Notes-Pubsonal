@@ -5,9 +5,9 @@ import bcrypt from 'bcryptjs';
 const DEFAULT_LIMIT = 20;
 const MAX_LIMIT = 100;
 
-// Minimum relevance score for $text results. Raise this to be stricter.
-// Set to 0 to disable the threshold entirely. Tune with real data.
-const MIN_TEXT_SCORE = 0.75;
+// Minimum relevance score for $text results. Set to 0 to disable the
+// threshold entirely. Tune with real data.
+const MIN_TEXT_SCORE = 0;
 
 /**
  * Build a Mongo filter for the search term.
@@ -23,7 +23,7 @@ const MIN_TEXT_SCORE = 0.75;
  *
  * Returns { filter, useTextSearch }.
  */
-async function buildSearchFilter(notesCollection, trimmedQuery, mode = 'all') {
+async function buildSearchFilter(notesCollection, trimmedQuery, mode = 'any') {
   if (!trimmedQuery) return { filter: {}, useTextSearch: false };
 
   const terms = trimmedQuery.split(/\s+/).filter(Boolean);
@@ -132,7 +132,7 @@ export default async function handler(req, res) {
           sort = 'recent',
           limit: limitRaw,
           cursor,
-          mode = 'all',
+          mode = 'any',
         } = req.query || {};
 
         const limit = Math.min(
@@ -142,7 +142,7 @@ export default async function handler(req, res) {
 
         const hasQuery = q && q.trim().length > 0;
         const trimmedQuery = hasQuery ? q.trim() : '';
-        const safeMode = ['all', 'any', 'phrase'].includes(mode) ? mode : 'all';
+        const safeMode = ['all', 'any', 'phrase'].includes(mode) ? mode : 'any';
 
         // Build the search filter (shared for the page + the total count).
         const { filter: searchFilter, useTextSearch } = await buildSearchFilter(

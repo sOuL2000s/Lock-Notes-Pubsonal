@@ -5,24 +5,22 @@ import { Search, X, Command, Loader2, ChevronDown, Filter } from 'lucide-react';
 /**
  * Compact, command-palette-style search bar.
  *
- * Layout:
- *
- *   ┌─────────────────────────────────────────────────────────────┐
- *   │ 🔍  [MATCH ALL ▾]  Search notes…      3 RESULTS   ⌘K   ✕    │
- *   └─────────────────────────────────────────────────────────────┘
- *   ────────────────────────────────────────────────────────────  (progress bar)
- *
  * - Debounced (default 200ms — snappy but not chatty).
  * - Mode is a compact dropdown *inside* the input, on the left.
  * - Result count appears as a subtle pill on the right.
  * - A thin animated bar under the input indicates an in-flight search.
  * - Cmd/Ctrl+K focuses; Escape clears immediately.
  * - Clear button appears only when there is text.
+ *
+ * FOCUS FIX: The input keeps focus across debounced updates. We use a ref
+ * to track whether the input currently has focus and only sync the external
+ * value when the input is NOT focused (to avoid clobbering what the user
+ * is typing).
  */
 function SearchBar({
   value,
   onChange,
-  mode = 'all',
+  mode = 'any',
   onModeChange,
   placeholder = 'Search notes…',
   loading = false,
@@ -37,10 +35,16 @@ function SearchBar({
   const debounceRef = useRef(null);
   const spinnerTimerRef = useRef(null);
   const modeRef = useRef(null);
+  const isFocusedRef = useRef(false);
+  const lastEmittedRef = useRef(value || '');
 
-  // Sync external value.
+  // Sync external value ONLY when the input is not focused.
+  // This prevents the input from being clobbered (and losing focus) when
+  // the parent re-renders after a debounced onChange.
   useEffect(() => {
-    if (value !== localValue) setLocalValue(value || '');
+    if (!isFocusedRef.current && value !== localValue) {
+      setLocalValue(value || '');
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [value]);
 
@@ -48,7 +52,11 @@ function SearchBar({
   useEffect(() => {
     if (debounceRef.current) clearTimeout(debounceRef.current);
     debounceRef.current = setTimeout(() => {
-      if (localValue !== value) onChange(localValue);
+      // Only emit if the value actually changed from what we last emitted.
+      if (localValue !== lastEmittedRef.current) {
+        lastEmittedRef.current = localValue;
+        onChange(localValue);
+      }
     }, debounceMs);
     return () => {
       if (debounceRef.current) clearTimeout(debounceRef.current);
@@ -104,6 +112,7 @@ function SearchBar({
   const handleKeyDown = (e) => {
     if (e.key === 'Escape') {
       setLocalValue('');
+      lastEmittedRef.current = '';
       onChange('');
       inputRef.current?.blur();
     }
@@ -111,8 +120,22 @@ function SearchBar({
 
   const handleClear = () => {
     setLocalValue('');
+    lastEmittedRef.current = '';
     onChange('');
     inputRef.current?.focus();
+  };
+
+  const handleFocus = () => {
+    isFocusedRef.current = true;
+  };
+
+  const handleBlur = () => {
+    isFocusedRef.current = false;
+    // If the external value differs from local (e.g. cleared externally),
+    // sync it now that we've lost focus.
+    if (value !== localValue) {
+      setLocalValue(value || '');
+    }
   };
 
   const isMac =
@@ -195,6 +218,8 @@ function SearchBar({
           value={localValue}
           onChange={(e) => setLocalValue(e.target.value)}
           onKeyDown={handleKeyDown}
+          onFocus={handleFocus}
+          onBlur={handleBlur}
           placeholder={placeholder}
           style={styles.input}
           aria-label="Search notes"

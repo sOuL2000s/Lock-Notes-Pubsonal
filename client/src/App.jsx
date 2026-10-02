@@ -25,7 +25,7 @@ function HomePage() {
   const [error, setError] = useState(null);
   const [preVerifiedPassword, setPreVerifiedPassword] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
-  const [searchMode, setSearchMode] = useState('all');
+  const [searchMode, setSearchMode] = useState('any');
   const [sort, setSort] = useState('recent');
   const [page, setPage] = useState(1);
   const [total, setTotal] = useState(0);
@@ -37,9 +37,20 @@ function HomePage() {
   // In-memory response cache: key = `${q}|${mode}|${sort}|${page}`.
   const resultCache = useRef(new Map());
 
+  // Track if this is the first render (to avoid resetting page on mount).
+  const isFirstRender = useRef(true);
+
+  // Track whether we've completed at least one successful load. The
+  // full-page spinner is only shown before this flips to true.
+  const hasLoadedOnce = useRef(false);
+
   // Reset pagination whenever the search query or mode changes.
   // (SearchBar handles the debouncing of the raw input.)
   useEffect(() => {
+    if (isFirstRender.current) {
+      isFirstRender.current = false;
+      return;
+    }
     setPage(1);
     cursorCache.current = { 1: undefined };
   }, [searchQuery, searchMode]);
@@ -58,6 +69,7 @@ function HomePage() {
         setError(null);
         setLoading(false);
         setSearchLoading(false);
+        hasLoadedOnce.current = true;
         return;
       }
 
@@ -110,6 +122,7 @@ function HomePage() {
         setTotal(totalCount);
         cursorCache.current[targetPage + 1] = data.nextCursor || null;
         setError(null);
+        hasLoadedOnce.current = true;
 
         // Remember this page for a short while.
         resultCache.current.set(cacheKey, {
@@ -214,7 +227,12 @@ function HomePage() {
     setPreVerifiedPassword('');
   };
 
-  if (loading && viewMode === 'list' && notes.length === 0) {
+  // Only show the full-page spinner on the very first load.
+  // Once we've loaded once, keep the list UI mounted even if a search
+  // returns 0 results — otherwise the SearchBar unmounts and the input
+  // loses focus mid-typing.
+  const isInitialLoad = loading && viewMode === 'list' && notes.length === 0 && !hasLoadedOnce.current;
+  if (isInitialLoad) {
     return (
       <div style={styles.loadingContainer}>
         <div style={styles.loadingContent}>
